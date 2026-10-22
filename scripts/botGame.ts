@@ -7,8 +7,7 @@ export function startedGameFor(seed: number): GameState {
   s = createManager(s, {
     name: '봇',
     nationality: '대한민국',
-    background: 'coach',
-    abilities: { tactics: 5, leadership: 5, communication: 5, youth: 4, negotiation: 3 },
+    style: 'tactician',
     difficulty: 'normal',
   })
   s = chooseOffer(s, s.offers[Math.min(1, s.offers.length - 1)].clubId)

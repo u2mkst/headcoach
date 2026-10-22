@@ -25,7 +25,7 @@ import {
   ROUNDS,
   simulateRound,
 } from './season'
-import { clamp, randomName, FORMATIONS, wageBill } from './squad'
+import { randomName, FORMATIONS, wageBill, clamp } from './squad'
 import type {
   Abilities,
   Coach,
@@ -42,17 +42,55 @@ export const SAVE_VERSION = 3
 
 export const DEFAULT_TACTICS: Tactics = { philosophy: 'possession', formation: '4-4-2', pressing: 'mid', line: 'mid' }
 
-export const BACKGROUNDS: { id: string; label: string; desc: string; reputation: number; bonus: Partial<Abilities> }[] = [
-  { id: 'national', label: '전직 국가대표', desc: '이름값이 크다. 선수단이 말을 잘 따른다.', reputation: 45, bonus: { leadership: 1 } },
-  { id: 'analyst', label: '전술 분석가', desc: '데이터와 영상으로 상대를 읽는다.', reputation: 22, bonus: { tactics: 2 } },
-  { id: 'youth', label: '유소년 지도자', desc: '어린 선수를 키우는 데 눈이 밝다.', reputation: 18, bonus: { youth: 2 } },
-  { id: 'coach', label: '프로팀 코치', desc: '현장 경험이 탄탄하고 균형이 좋다.', reputation: 32, bonus: { leadership: 1, communication: 1 } },
-  { id: 'abroad', label: '해외 리그 출신', desc: '말솜씨와 협상 감각이 있다.', reputation: 36, bonus: { communication: 1, negotiation: 1 } },
-]
+/** 모든 감독은 같은 명성에서 시작한다 */
+export const START_REPUTATION = 30
 
-export const ABILITY_BASE = 3
-export const ABILITY_POINTS = 12
-export const ABILITY_MAX = 9
+export interface ManagerStyle {
+  id: string
+  label: string
+  /** 한 줄 성향 */
+  tagline: string
+  desc: string
+  /** 능력치 합은 모두 27 (기본 3씩 + 12점) */
+  abilities: Abilities
+  /** 이 감독이 처음 잡는 전술 */
+  tactics: Tactics
+}
+
+export const MANAGER_STYLES: ManagerStyle[] = [
+  {
+    id: 'defensive',
+    label: '수비적 · 보수적',
+    tagline: '실점부터 줄이는 단단한 팀',
+    desc: '라인을 내리고 수비를 두텁게 세워요. 흔들림 없는 운영과 협상에 강해요.',
+    abilities: { tactics: 7, leadership: 6, communication: 4, youth: 4, negotiation: 6 },
+    tactics: { philosophy: 'defense', formation: '5-3-2', pressing: 'low', line: 'low' },
+  },
+  {
+    id: 'attacking',
+    label: '공격적 · 역동적',
+    tagline: '높이 올라가 몰아붙이는 팀',
+    desc: '압박하고 라인을 올려 먼저 공격해요. 말솜씨가 좋아 팬을 끌어모아요.',
+    abilities: { tactics: 6, leadership: 5, communication: 7, youth: 4, negotiation: 5 },
+    tactics: { philosophy: 'attack', formation: '4-3-3', pressing: 'high', line: 'high' },
+  },
+  {
+    id: 'tactician',
+    label: '지략가 · 분석적',
+    tagline: '공을 쥐고 경기를 설계하는 팀',
+    desc: '점유와 짜임새로 경기를 풀어요. 전술 완성도가 가장 높아요.',
+    abilities: { tactics: 8, leadership: 4, communication: 5, youth: 5, negotiation: 5 },
+    tactics: { philosophy: 'possession', formation: '4-2-3-1', pressing: 'mid', line: 'mid' },
+  },
+  {
+    id: 'builder',
+    label: '실리적 · 육성형',
+    tagline: '어린 선수를 키워 역습으로 찌르는 팀',
+    desc: '유소년을 키우고 선수단을 하나로 묶어요. 역습으로 효율적으로 싸워요.',
+    abilities: { tactics: 5, leadership: 6, communication: 4, youth: 8, negotiation: 4 },
+    tactics: { philosophy: 'counter', formation: '4-4-2', pressing: 'mid', line: 'low' },
+  },
+]
 
 export const NATIONALITIES = ['대한민국', '일본', '브라질', '스페인', '독일', '기타']
 
@@ -116,26 +154,19 @@ export function act<T = void>(state: GameState, fn: (draft: GameState, rng: Rng)
 
 /* ───────── 시작 흐름 ───────── */
 
-export function abilityPointsLeft(a: Abilities): number {
-  return ABILITY_POINTS - (Object.values(a).reduce((x, y) => x + y, 0) - ABILITY_BASE * 5)
-}
-
 export function createManager(
   state: GameState,
-  input: { name: string; nationality: string; background: string; abilities: Abilities; difficulty: Difficulty },
+  input: { name: string; nationality: string; style: string; difficulty: Difficulty },
 ): GameState {
   return act(state, (s, rng) => {
-    const bg = BACKGROUNDS.find((b) => b.id === input.background) ?? BACKGROUNDS[3]
-    const abilities = { ...input.abilities }
-    for (const k of Object.keys(bg.bonus) as (keyof Abilities)[]) {
-      abilities[k] = clamp(abilities[k] + (bg.bonus[k] ?? 0), 1, 10)
-    }
+    const style = MANAGER_STYLES.find((m) => m.id === input.style) ?? MANAGER_STYLES[0]
     s.manager = {
       name: input.name.trim() || '무명',
       nationality: input.nationality,
-      background: bg.label,
-      abilities,
-      reputation: bg.reputation,
+      background: style.label,
+      style: style.id,
+      abilities: { ...style.abilities },
+      reputation: START_REPUTATION,
     }
     s.difficulty = input.difficulty
     s.offers = makeOffers(s, rng, 3)
@@ -170,7 +201,8 @@ function joinClub(s: GameState, clubId: string, targetRank: number, budget: numb
   club.budget = budget
   s.seasonStartBudget = budget
   s.ownerTrust = 55
-  s.tactics = { ...DEFAULT_TACTICS, philosophy: club.philosophy, formation: club.formation }
+  const style = MANAGER_STYLES.find((m) => m.id === s.manager?.style)
+  s.tactics = style ? { ...style.tactics } : { ...DEFAULT_TACTICS, philosophy: club.philosophy, formation: club.formation }
   s.tacticMemory = { streak: 0, lastKey: null, familiarity: 0, lastPhilosophy: null }
   s.fan = { ...INITIAL_FAN }
   s.monthPlan = null

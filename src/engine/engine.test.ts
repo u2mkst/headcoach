@@ -19,6 +19,7 @@ import {
 } from './game'
 import { userClub, pushTimeline } from './helpers'
 import { josa } from './josa'
+import { MANAGER_STYLES } from './game'
 import { updateFan } from './fans'
 import { computeStandings as standingsFor } from './season'
 import type { GameState, Tactics } from './types'
@@ -28,8 +29,7 @@ export function startedGame(seed = 7): GameState {
   s = createManager(s, {
     name: '테스트',
     nationality: '대한민국',
-    background: 'coach',
-    abilities: { tactics: 6, leadership: 5, communication: 5, youth: 4, negotiation: 3 },
+    style: 'tactician',
     difficulty: 'normal',
   })
   s = chooseOffer(s, s.offers[1].clubId)
@@ -157,7 +157,7 @@ describe('게임 흐름', () => {
   })
   it('확인 시트에서 "다시 보기"로 되돌아갈 수 있다', () => {
     let s = newGame(2)
-    s = createManager(s, { name: 'a', nationality: '대한민국', background: 'coach', abilities: { tactics: 5, leadership: 5, communication: 5, youth: 5, negotiation: 5 }, difficulty: 'normal' })
+    s = createManager(s, { name: 'a', nationality: '대한민국', style: 'defensive', difficulty: 'normal' })
     s = chooseCoach(chooseOffer(s, s.offers[0].clubId), (chooseOffer(s, s.offers[0].clubId)).coachCandidates[0].id)
     expect(s.phase).toBe('confirm')
     expect(backToOffers(s).phase).toBe('offers')
@@ -399,5 +399,29 @@ describe('팬 지지도', () => {
       if (net <= -2) expect(d).toBeLessThan(0)
     }
     expect(new Set(seen).size).toBeGreaterThan(2)
+  })
+})
+
+describe('감독 성향', () => {
+  it('성향 4가지는 능력치 합이 같고 모두 같은 명성으로 시작한다', () => {
+    expect(MANAGER_STYLES).toHaveLength(4)
+    for (const m of MANAGER_STYLES) {
+      expect(Object.values(m.abilities).reduce((a, b) => a + b, 0)).toBe(27)
+      expect(Math.max(...Object.values(m.abilities))).toBeLessThanOrEqual(10)
+    }
+    const reps = MANAGER_STYLES.map((m) => {
+      const s = createManager(newGame(1), { name: 'a', nationality: '대한민국', style: m.id, difficulty: 'normal' })
+      return s.manager!.reputation
+    })
+    expect(new Set(reps).size).toBe(1)
+  })
+  it('고른 성향이 능력치와 시작 전술을 정한다', () => {
+    for (const m of MANAGER_STYLES) {
+      let s = createManager(newGame(2), { name: 'a', nationality: '대한민국', style: m.id, difficulty: 'normal' })
+      expect(s.manager!.abilities).toEqual(m.abilities)
+      expect(s.manager!.background).toBe(m.label)
+      s = chooseOffer(s, s.offers[0].clubId)
+      expect(s.tactics).toEqual(m.tactics)
+    }
   })
 })

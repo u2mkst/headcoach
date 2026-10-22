@@ -48,7 +48,10 @@ export type AbilityKey = keyof Abilities
 export interface Manager {
   name: string
   nationality: string
+  /** 성향 이름 (예: 수비적 · 보수적) */
   background: string
+  /** 성향 id — 이전 저장 데이터에는 없을 수 있다 */
+  style?: string
   abilities: Abilities
   reputation: number
 }

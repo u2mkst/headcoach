@@ -2,18 +2,15 @@ import { useState } from 'react'
 import { clubById, competitionById } from '../data/clubs'
 import { targetLabel } from '../engine/career'
 import {
-  ABILITY_BASE,
-  ABILITY_MAX,
-  ABILITY_POINTS,
-  abilityPointsLeft,
   backToOffers,
-  BACKGROUNDS,
   chooseCoach,
   chooseOffer,
   createManager,
+  MANAGER_STYLES,
   NATIONALITIES,
   startSeason,
 } from '../engine/game'
+import { PHILOSOPHY_LABEL } from '../engine/squad'
 import type { Abilities, Difficulty, GameState } from '../engine/types'
 import { BottomBar, Crest, Sheet } from './components'
 
@@ -32,7 +29,7 @@ const SPECIALTY_DESC = {
   youth: '어린 선수들의 성장이 더 커져요',
 } as const
 
-const TOTAL_STEPS = 6
+const TOTAL_STEPS = 5
 
 function Steps({ index }: { index: number }) {
   return (
@@ -48,21 +45,12 @@ export function Onboarding({ state, onChange }: { state: GameState; onChange: (s
   const [step, setStep] = useState(0)
   const [name, setName] = useState('')
   const [nationality, setNationality] = useState(NATIONALITIES[0])
-  const [background, setBackground] = useState('')
+  const [style, setStyle] = useState('')
   const [difficulty, setDifficulty] = useState<Difficulty>('normal')
-  const [abilities, setAbilities] = useState<Abilities>({
-    tactics: ABILITY_BASE,
-    leadership: ABILITY_BASE,
-    communication: ABILITY_BASE,
-    youth: ABILITY_BASE,
-    negotiation: ABILITY_BASE,
-  })
   const [pickedClub, setPickedClub] = useState('')
   const [pickedCoach, setPickedCoach] = useState('')
 
   if (state.phase === 'create') {
-    const left = abilityPointsLeft(abilities)
-    const bump = (k: keyof Abilities, d: number) => setAbilities((a) => ({ ...a, [k]: a[k] + d }))
     const back = step > 0 ? () => setStep(step - 1) : undefined
     return (
       <div className="onboard">
@@ -96,53 +84,36 @@ export function Onboarding({ state, onChange }: { state: GameState; onChange: (s
         )}
         {step === 1 && (
           <>
-            <h1 className="question">{'어떤 길을\n걸어왔나요?'}</h1>
-            <p className="hint">이력에 따라 시작 명성과 능력치 보너스가 달라져요.</p>
+            <h1 className="question">{'어떤 스타일의\n감독인가요?'}</h1>
+            <p className="hint">처음 잡는 전술과 강점이 정해져요. 시즌 중에 전술은 언제든 바꿀 수 있어요.</p>
             <div className="list">
-              {BACKGROUNDS.map((b) => (
-                <button key={b.id} className="option" aria-pressed={background === b.id} onClick={() => setBackground(b.id)}>
-                  <div className="grow">
-                    <div className="title">{b.label}</div>
-                    <div className="desc">{b.desc}</div>
-                    <div className="chips" style={{ marginTop: 6 }}>
-                      <span className="tag">명성 {b.reputation}</span>
-                      {(Object.keys(b.bonus) as (keyof Abilities)[]).map((k) => (
-                        <span key={k} className="tag accent">
-                          {ABILITY_INFO.find((a) => a.key === k)?.label} +{b.bonus[k]}
+              {MANAGER_STYLES.map((m) => {
+                const top = (Object.keys(m.abilities) as (keyof Abilities)[])
+                  .sort((x, y) => m.abilities[y] - m.abilities[x])
+                  .slice(0, 2)
+                return (
+                  <button key={m.id} className="option" aria-pressed={style === m.id} onClick={() => setStyle(m.id)}>
+                    <div className="grow">
+                      <div className="title">{m.label}</div>
+                      <div className="desc">{m.tagline}</div>
+                      <div className="desc" style={{ marginTop: 2 }}>
+                        {m.desc}
+                      </div>
+                      <div className="chips" style={{ marginTop: 8 }}>
+                        <span className="tag">
+                          {PHILOSOPHY_LABEL[m.tactics.philosophy]} · {m.tactics.formation}
                         </span>
-                      ))}
+                        {top.map((k) => (
+                          <span key={k} className="tag accent">
+                            {ABILITY_INFO.find((a) => a.key === k)?.label} {m.abilities[k]}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                  <span className="radio" />
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-        {step === 2 && (
-          <>
-            <h1 className="question">{'강점을 어떻게\n나눌까요?'}</h1>
-            <p className="hint">
-              {ABILITY_POINTS}점을 나눠 주세요. 남은 점수 <b style={{ color: left === 0 ? 'var(--ink)' : 'var(--accent)' }}>{left}</b>점
-            </p>
-            <div className="card flush">
-              {ABILITY_INFO.map((a) => (
-                <div key={a.key} className="item">
-                  <div className="grow">
-                    <div style={{ fontWeight: 700 }}>{a.label}</div>
-                    <div className="label">{a.desc}</div>
-                  </div>
-                  <div className="stepper">
-                    <button aria-label={`${a.label} 낮추기`} disabled={abilities[a.key] <= ABILITY_BASE} onClick={() => bump(a.key, -1)}>
-                      −
-                    </button>
-                    <output>{abilities[a.key]}</output>
-                    <button aria-label={`${a.label} 높이기`} disabled={left <= 0 || abilities[a.key] >= ABILITY_MAX} onClick={() => bump(a.key, 1)}>
-                      +
-                    </button>
-                  </div>
-                </div>
-              ))}
+                    <span className="radio" />
+                  </button>
+                )
+              })}
             </div>
             <div className="stack" style={{ gap: 8 }}>
               <span className="label">난이도</span>
@@ -170,13 +141,13 @@ export function Onboarding({ state, onChange }: { state: GameState; onChange: (s
           )}
           <button
             className="btn primary"
-            disabled={(step === 0 && !name.trim()) || (step === 1 && !background) || (step === 2 && left !== 0)}
+            disabled={(step === 0 && !name.trim()) || (step === 1 && !style)}
             onClick={() => {
-              if (step < 2) setStep(step + 1)
-              else onChange(createManager(state, { name, nationality, background, abilities, difficulty }))
+              if (step < 1) setStep(step + 1)
+              else onChange(createManager(state, { name, nationality, style, difficulty }))
             }}
           >
-            {step < 2 ? '다음' : '구단 제안 받기'}
+            {step < 1 ? '다음' : '구단 제안 받기'}
           </button>
         </BottomBar>
       </div>
@@ -186,7 +157,7 @@ export function Onboarding({ state, onChange }: { state: GameState; onChange: (s
   if (state.phase === 'offers') {
     return (
       <div className="onboard">
-        <Steps index={3} />
+        <Steps index={2} />
         <h1 className="question">{'어느 구단에서\n시작할까요?'}</h1>
         <p className="hint">{state.manager?.name} 감독에게 세 구단이 연락했어요.</p>
         <div className="list">
@@ -222,7 +193,7 @@ export function Onboarding({ state, onChange }: { state: GameState; onChange: (s
   if (state.phase === 'coach') {
     return (
       <div className="onboard">
-        <Steps index={4} />
+        <Steps index={3} />
         <h1 className="question">{'수석코치는\n누구로 할까요?'}</h1>
         <p className="hint">함께할 코치는 팀의 색깔을 바꿔요.</p>
         <div className="list">
@@ -253,7 +224,7 @@ export function Onboarding({ state, onChange }: { state: GameState; onChange: (s
   const coach = state.coach
   return (
     <div className="onboard">
-      <Steps index={5} />
+      <Steps index={4} />
       <h1 className="question">{'수석코치는\n누구로 할까요?'}</h1>
       <div className="list" aria-hidden="true">
         {state.coachCandidates.map((c) => (
