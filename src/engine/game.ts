@@ -22,7 +22,7 @@ import {
   ROUNDS,
   simulateRound,
 } from './season'
-import { clamp, playerValue, randomName, SQUAD_MAX, FORMATIONS, isAvailable, wageBill } from './squad'
+import { assignNumber, clamp, playerLabel, playerValue, randomName, SQUAD_MAX, FORMATIONS, isAvailable, wageBill } from './squad'
 import type {
   Abilities,
   Coach,
@@ -34,7 +34,7 @@ import type {
   Tactics,
 } from './types'
 
-export const SAVE_VERSION = 1
+export const SAVE_VERSION = 2
 
 export const DEFAULT_TACTICS: Tactics = { philosophy: 'possession', formation: '4-4-2', pressing: 'mid', line: 'mid' }
 
@@ -322,8 +322,9 @@ export function buyPlayer(state: GameState, playerId: string): [GameState, strin
     s.market.splice(i, 1)
     p.contractYears = 3
     p.morale = 70
+    assignNumber(club.squad, p)
     club.squad.push(p)
-    pushTimeline(s, 'event', `${p.name}(${p.pos}, ${p.ovr}) 영입 — ${price}억`)
+    pushTimeline(s, 'event', `${playerLabel(p)}(능력치 ${p.ovr}) 영입 — ${price}억`)
     return null
   })
 }
@@ -340,7 +341,7 @@ export function sellPlayer(state: GameState, playerId: string): [GameState, stri
     if (s.manualLineup) s.manualLineup = s.manualLineup.filter((id) => id !== playerId)
     club.budget += price
     for (const q of club.squad) q.morale = clamp(q.morale - (p.ovr >= 70 ? 1 : 0), 10, 100)
-    pushTimeline(s, 'event', `${p.name}(${p.pos}, ${p.ovr}) 이적 — +${price}억`)
+    pushTimeline(s, 'event', `${playerLabel(p)}(능력치 ${p.ovr}) 이적 — +${price}억`)
     return null
   })
 }

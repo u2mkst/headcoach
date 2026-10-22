@@ -56,14 +56,6 @@ export function SeasonEnd({ state, onChange }: { state: GameState; onChange: (s:
               </b>
             </div>
           </div>
-          {summary.topScorer && (
-            <div className="row between">
-              <span className="label">팀 내 득점왕</span>
-              <b>
-                {summary.topScorer.name} · {summary.topScorer.goals}골
-              </b>
-            </div>
-          )}
         </section>
 
         {(summary.achievements.length > 0 || summary.promiseNotes.length > 0) && (

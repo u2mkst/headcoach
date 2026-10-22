@@ -77,21 +77,6 @@ export function ResultScreen({ state, onContinue }: { state: GameState; onContin
               <span>{clubById(mine.away).short}</span>
             </div>
           </div>
-          {mine.scorers.length > 0 && (
-            <>
-              <div className="divider" style={{ margin: 0 }} />
-              <div className="stack" style={{ gap: 6 }}>
-                {mine.scorers.map((s, i) => (
-                  <div key={i} className="row between" style={{ fontSize: 14 }}>
-                    <span style={{ fontWeight: s.clubId === uid ? 700 : 500, color: s.clubId === uid ? 'var(--ink)' : 'var(--muted)' }}>
-                      ⚽ {s.name}
-                    </span>
-                    <span className="label tnum">{s.minute}'</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
         </section>
 
         <section className="card stack" aria-label="주요 기록">
@@ -111,14 +96,6 @@ export function ResultScreen({ state, onContinue }: { state: GameState; onContin
             <span className="mid">슈팅</span>
             <span className="r tnum">{mine.shotsAway}</span>
           </div>
-          {mine.motm && (
-            <div className="row between">
-              <span className="label">경기 최우수 선수</span>
-              <b>
-                {mine.motm.name} <span className="muted">({clubById(mine.motm.clubId).short})</span>
-              </b>
-            </div>
-          )}
           <div className="row between">
             <span className="label">순위</span>
             <b>

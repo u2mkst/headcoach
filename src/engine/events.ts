@@ -15,8 +15,11 @@ import {
   type CheckTier,
 } from './helpers'
 import { josa } from './josa'
-import { clamp, makePlayer, playerValue, SQUAD_MAX } from './squad'
+import { assignNumber, clamp, makePlayer, playerLabel, playerValue, POS_LABEL, SQUAD_MAX } from './squad'
 import type { EventOutcome, EventType, GameState, PendingEvent, Position } from './types'
+
+/** 이벤트 매개변수에 담긴 등번호·포지션으로 선수 호칭을 만든다 */
+const who = (p: PendingEvent['params']) => playerLabel({ no: Number(p.no), pos: p.pos as Position })
 
 export interface EventChoice {
   id: string
@@ -66,8 +69,8 @@ export function describeEvent(ev: PendingEvent): EventView {
     case 'complaint':
       return {
         tag,
-        title: `${p.name}의 면담 요청`,
-        body: `${p.name}(${p.pos}, ${p.ovr}) 선수가 출전 기회가 적다며 찾아왔어요. 표정이 굳어 있습니다.`,
+        title: `${who(p)}의 면담 요청`,
+        body: `${who(p)}(능력치 ${p.ovr})가 출전 기회가 적다며 찾아왔어요. 표정이 굳어 있습니다.`,
         choices: [
           { id: 'promise', label: '출전 기회를 약속한다', hint: '사기가 오르지만 지켜야 한다' },
           { id: 'prove', label: '훈련에서 증명하라고 한다', hint: '지도력에 따라 갈린다' },
@@ -78,8 +81,8 @@ export function describeEvent(ev: PendingEvent): EventView {
     case 'injury':
       return {
         tag,
-        title: `${p.name} 부상`,
-        body: `${p.name}(${p.pos}, ${p.ovr}) 선수가 ${p.rounds}라운드 결장이 예상돼요. 의무팀이 복귀 방식을 물어봅니다.`,
+        title: `${who(p)} 부상`,
+        body: `${who(p)}(능력치 ${p.ovr})가 ${p.rounds}라운드 결장이 예상돼요. 의무팀이 복귀 방식을 물어봅니다.`,
         choices: [
           { id: 'rest', label: '충분히 쉬게 한다', hint: '정상 복귀. 안전하다' },
           { id: 'rehab', label: '집중 재활을 맡긴다 (-2억)', hint: '복귀가 한 라운드 빨라진다' },
@@ -90,7 +93,7 @@ export function describeEvent(ev: PendingEvent): EventView {
       return {
         tag,
         title: `${p.club}의 이적 제안`,
-        body: `${josa(p.club, '이/가')} ${p.name}(${p.pos}, ${p.ovr}) 선수에게 ${fmtMoney(Number(p.price))}을 제시했어요.`,
+        body: `${josa(p.club, '이/가')} ${who(p)}(능력치 ${p.ovr})에게 ${fmtMoney(Number(p.price))}을 제시했어요.`,
         choices: [
           { id: 'accept', label: `수락한다 (+${fmtMoney(Number(p.price))})`, hint: '선수를 보내고 이적료를 받는다' },
           { id: 'negotiate', label: '더 높은 금액을 요구한다', hint: '협상 능력에 따라 금액이 오르거나 제안이 철회된다' },
@@ -112,8 +115,8 @@ export function describeEvent(ev: PendingEvent): EventView {
     case 'prospect':
       return {
         tag,
-        title: `유소년 유망주 ${p.name}`,
-        body: `${p.name}(${p.pos}, ${p.age}세) 유망주가 유소년팀에서 눈에 띄어요. 현재 ${p.ovr}, 잠재력은 ${p.pot}까지 보입니다.`,
+        title: `유소년 유망주 ${POS_LABEL[p.pos as Position]}`,
+        body: `${POS_LABEL[p.pos as Position]} 유망주(${p.age}세)가 유소년팀에서 눈에 띄어요. 현재 ${p.ovr}, 잠재력은 ${p.pot}까지 보입니다.`,
         choices: [
           { id: 'promote', label: '1군에 등록한다', hint: '선수단에 합류시킨다' },
           { id: 'sell', label: '이적료를 받고 보낸다 (+3억)', hint: '재정에 보탬이 된다' },
@@ -185,7 +188,7 @@ export function rollEvents(s: GameState, rng: Rng, ctx: RollContext): PendingEve
   // 1) 부상 처치 — 새로 다친 주요 선수
   for (const p of club.squad) {
     if (p.injuredRounds >= 3 && p.ovr >= 62 && !ctx.injuredBefore.has(p.id) && !has(s, 'injury', 'playerId', p.id)) {
-      add('injury', { playerId: p.id, name: p.name, pos: p.pos, ovr: p.ovr, rounds: p.injuredRounds })
+      add('injury', { playerId: p.id, no: p.no, pos: p.pos, ovr: p.ovr, rounds: p.injuredRounds })
       break
     }
   }
@@ -203,7 +206,7 @@ export function rollEvents(s: GameState, rng: Rng, ctx: RollContext): PendingEve
     .filter((p) => p.injuredRounds === 0 && ((p.benchStreak >= 3 && p.ovr >= 66 && p.morale < 60) || p.morale < 35))
     .sort((a, b) => a.morale - b.morale)[0]
   if (unhappy && !has(s, 'complaint', 'playerId', unhappy.id) && rng.chance(0.55)) {
-    add('complaint', { playerId: unhappy.id, name: unhappy.name, pos: unhappy.pos, ovr: unhappy.ovr })
+    add('complaint', { playerId: unhappy.id, no: unhappy.no, pos: unhappy.pos, ovr: unhappy.ovr })
   }
 
   // 5) 이적 제안
@@ -214,7 +217,7 @@ export function rollEvents(s: GameState, rng: Rng, ctx: RollContext): PendingEve
       const others = Object.keys(s.clubs).filter((id) => id !== s.userClubId)
       const bidder = clubById(rng.pick(others))
       const price = Math.round(playerValue(p) * rng.range(0.95, 1.3) * 10) / 10
-      add('offer', { playerId: p.id, name: p.name, pos: p.pos, ovr: p.ovr, club: bidder.name, price })
+      add('offer', { playerId: p.id, no: p.no, pos: p.pos, ovr: p.ovr, club: bidder.name, price })
     }
   }
 
@@ -223,7 +226,7 @@ export function rollEvents(s: GameState, rng: Rng, ctx: RollContext): PendingEve
     const pos = rng.pick(['DF', 'MF', 'FW'] as Position[])
     const kid = makePlayer(rng, 0, pos, 66, { youth: true })
     kid.pot = clamp(kid.pot + 4 + Math.round((s.manager?.abilities.youth ?? 5) / 2), 60, 92)
-    add('prospect', { name: kid.name, pos, age: kid.age, ovr: kid.ovr, pot: kid.pot })
+    add('prospect', { pos, age: kid.age, ovr: kid.ovr, pot: kid.pot })
   }
 
   // 7) 라이벌 도발
@@ -236,7 +239,7 @@ export function rollEvents(s: GameState, rng: Rng, ctx: RollContext): PendingEve
   const avgMorale = club.squad.reduce((a, p) => a + p.morale, 0) / Math.max(1, club.squad.length)
   if (rng.chance(avgMorale < 55 ? 0.1 : 0.03) && !has(s, 'lockerroom') && club.squad.length >= 2) {
     const [a, b] = rng.shuffle(club.squad).slice(0, 2)
-    add('lockerroom', { aId: a.id, bId: b.id, a: a.name, b: b.name })
+    add('lockerroom', { aId: a.id, bId: b.id, a: playerLabel(a), b: playerLabel(b) })
   }
 
   // 9) 기자회견 — 가장 흔한 이벤트
@@ -349,24 +352,24 @@ const handlers: Record<EventType, (s: GameState, rng: Rng, ev: PendingEvent, c: 
       const d = tierPick(tier, 16, 12, 8)
       p.morale = clamp(p.morale + d, 10, 100)
       p.benchStreak = 0
-      fx.push(`${p.name} 사기 ${signed(d)}`)
-      return { text: `${josa(p.name, '은/는')} 믿고 기다려 보겠다고 했어요. 약속은 지켜야 합니다.`, tone: 'good', fx }
+      fx.push(`${playerLabel(p)} 사기 ${signed(d)}`)
+      return { text: `${josa(playerLabel(p), '은/는')} 믿고 기다려 보겠다고 했어요. 약속은 지켜야 합니다.`, tone: 'good', fx }
     }
     if (c === 'prove') {
       if (tier === 'bad') {
         p.morale = clamp(p.morale - 8, 10, 100)
-        fx.push(`${p.name} 사기 -8`)
-        return { text: `${josa(p.name, '은/는')} 말없이 고개를 숙였지만 눈빛이 식었어요.`, tone: 'bad', fx }
+        fx.push(`${playerLabel(p)} 사기 -8`)
+        return { text: `${josa(playerLabel(p), '은/는')} 말없이 고개를 숙였지만 눈빛이 식었어요.`, tone: 'bad', fx }
       }
       const d = tier === 'great' ? 12 : 6
       p.morale = clamp(p.morale + d, 10, 100)
-      fx.push(`${p.name} 사기 ${signed(d)}`)
-      return { text: `${josa(p.name, '은/는')} 훈련에서 보여주겠다며 의욕을 불태워요.`, tone: tier === 'great' ? 'good' : 'neutral', fx }
+      fx.push(`${playerLabel(p)} 사기 ${signed(d)}`)
+      return { text: `${josa(playerLabel(p), '은/는')} 훈련에서 보여주겠다며 의욕을 불태워요.`, tone: tier === 'great' ? 'good' : 'neutral', fx }
     }
     if (c === 'ignore') {
       p.morale = clamp(p.morale - 8, 10, 100)
       addTrust(s, -1)
-      fx.push(`${p.name} 사기 -8`, '구단주 신뢰 -1')
+      fx.push(`${playerLabel(p)} 사기 -8`, '구단주 신뢰 -1')
       return { text: '대화 없이 지나갔어요. 선수의 표정이 더 어두워졌습니다.', tone: 'bad', fx }
     }
     // transfer
@@ -375,7 +378,7 @@ const handlers: Record<EventType, (s: GameState, rng: Rng, ev: PendingEvent, c: 
     userClub(s).budget += price
     addMoraleAll(s, -1)
     fx.push(`이적료 +${fmtMoney(price)}`, '선수단 사기 -1')
-    return { text: `${p.name}의 이적을 허락했어요. 이적료 ${fmtMoney(price)}이 들어옵니다.`, tone: 'neutral', fx }
+    return { text: `${playerLabel(p)}의 이적을 허락했어요. 이적료 ${fmtMoney(price)}이 들어옵니다.`, tone: 'neutral', fx }
   },
 
   injury(s, _rng, ev, c) {
@@ -383,18 +386,18 @@ const handlers: Record<EventType, (s: GameState, rng: Rng, ev: PendingEvent, c: 
     if (!p || p.injuredRounds <= 0) return { text: '선수는 이미 회복했어요.', tone: 'neutral', fx: [] }
     const fx: Fx = []
     if (c === 'rest') {
-      return { text: `${josa(p.name, '은/는')} 충분히 치료받으며 정상 복귀를 준비해요.`, tone: 'neutral', fx }
+      return { text: `${josa(playerLabel(p), '은/는')} 충분히 치료받으며 정상 복귀를 준비해요.`, tone: 'neutral', fx }
     }
     if (c === 'rehab') {
       userClub(s).budget -= 2
       p.injuredRounds = Math.max(1, p.injuredRounds - 1)
       fx.push('예산 -2억', `복귀 ${p.injuredRounds}라운드 후`)
-      return { text: `재활 전문가가 붙었어요. ${p.name}의 복귀가 앞당겨집니다.`, tone: 'good', fx }
+      return { text: `재활 전문가가 붙었어요. ${playerLabel(p)}의 복귀가 앞당겨집니다.`, tone: 'good', fx }
     }
     p.injuredRounds = Math.max(1, Math.ceil(p.injuredRounds / 2))
     p.pushedReturn = true
     fx.push(`복귀 ${p.injuredRounds}라운드 후`, '다음 시즌 기량 하락 위험')
-    return { text: `${josa(p.name, '이/가')} 서둘러 돌아옵니다. 의무팀은 표정이 좋지 않아요. 무리한 복귀의 대가는 다음 시즌에 나타날 수 있습니다.`, tone: 'bad', fx }
+    return { text: `${josa(playerLabel(p), '이/가')} 서둘러 돌아옵니다. 의무팀은 표정이 좋지 않아요. 무리한 복귀의 대가는 다음 시즌에 나타날 수 있습니다.`, tone: 'bad', fx }
   },
 
   offer(s, rng, ev, c) {
@@ -410,13 +413,13 @@ const handlers: Record<EventType, (s: GameState, rng: Rng, ev: PendingEvent, c: 
     }
     if (c === 'accept') {
       sell(price)
-      return { text: `${josa(p.name, '을/를')} ${josa(ev.params.club, '으로/로')} 보냈어요.`, tone: 'neutral', fx }
+      return { text: `${josa(playerLabel(p), '을/를')} ${josa(ev.params.club, '으로/로')} 보냈어요.`, tone: 'neutral', fx }
     }
     if (c === 'negotiate') {
       const tier = abilityCheck(s, rng, 'negotiation')
       if (tier === 'bad') {
         p.morale = clamp(p.morale - 3, 10, 100)
-        fx.push(`${p.name} 사기 -3`)
+        fx.push(`${playerLabel(p)} 사기 -3`)
         return { text: `${josa(ev.params.club, '은/는')} 제안을 거둬들였어요. 선수는 기회를 놓쳤다고 느낍니다.`, tone: 'bad', fx }
       }
       const amount = Math.round(price * (tier === 'great' ? 1.4 : 1.15) * 10) / 10
@@ -424,8 +427,8 @@ const handlers: Record<EventType, (s: GameState, rng: Rng, ev: PendingEvent, c: 
       return { text: `협상 끝에 ${fmtMoney(amount)}에 합의했어요.`, tone: tier === 'great' ? 'good' : 'neutral', fx }
     }
     p.morale = clamp(p.morale - 3, 10, 100)
-    fx.push(`${p.name} 사기 -3`)
-    return { text: `${josa(p.name, '은/는')} 팀에 남습니다. 다만 마음은 조금 흔들렸어요.`, tone: 'neutral', fx }
+    fx.push(`${playerLabel(p)} 사기 -3`)
+    return { text: `${josa(playerLabel(p), '은/는')} 팀에 남습니다. 다만 마음은 조금 흔들렸어요.`, tone: 'neutral', fx }
   },
 
   owner(s, rng, _ev, c) {
@@ -468,14 +471,14 @@ const handlers: Record<EventType, (s: GameState, rng: Rng, ev: PendingEvent, c: 
       if (club.squad.length >= SQUAD_MAX) return { text: '선수단이 가득 차서 등록하지 못했어요.', tone: 'neutral', fx }
       const kid = makePlayer(rng, 0, ev.params.pos as Position, 66, { youth: true, age: Number(ev.params.age) })
       kid.id = newId(s, 'p')
-      kid.name = String(ev.params.name)
       kid.ovr = Number(ev.params.ovr)
       kid.pot = Number(ev.params.pot)
       kid.academy = true
       kid.contractYears = 3
+      assignNumber(club.squad, kid)
       club.squad.push(kid)
-      fx.push(`${kid.name} 1군 등록`)
-      return { text: `${josa(kid.name, '이/가')} 1군에 합류했어요. 첫 훈련부터 눈빛이 달라요.`, tone: 'good', fx }
+      fx.push(`${playerLabel(kid)} 1군 등록`)
+      return { text: `${josa(playerLabel(kid), '이/가')} 1군에 합류했어요. 첫 훈련부터 눈빛이 달라요.`, tone: 'good', fx }
     }
     if (c === 'sell') {
       userClub(s).budget += 3
@@ -565,7 +568,7 @@ const handlers: Record<EventType, (s: GameState, rng: Rng, ev: PendingEvent, c: 
     const weaker = a.ovr <= b.ovr ? a : b
     weaker.morale = clamp(weaker.morale - 10, 10, 100)
     weaker.benchStreak += 2
-    fx.push(`${weaker.name} 사기 -10`)
-    return { text: `${josa(weaker.name, '은/는')} 한동안 훈련에서 제외돼요. 라커룸이 숨죽였습니다.`, tone: 'bad', fx }
+    fx.push(`${playerLabel(weaker)} 사기 -10`)
+    return { text: `${josa(playerLabel(weaker), '은/는')} 한동안 훈련에서 제외돼요. 라커룸이 숨죽였습니다.`, tone: 'bad', fx }
   },
 }

@@ -38,6 +38,7 @@ export const POS_LABEL: Record<Position, string> = { GK: '골키퍼', DF: '수�
 const SURNAMES = ['김', '이', '박', '최', '정', '강', '조', '윤', '장', '임', '한', '오', '서', '신', '권', '황', '안', '송', '류', '홍', '문', '양', '손', '배', '백', '허', '유', '남', '심', '노']
 const GIVEN = ['민준', '서준', '도윤', '시우', '지호', '준우', '현우', '건우', '우진', '선우', '주원', '재민', '태양', '승현', '지훈', '유찬', '동현', '하준', '정우', '은찬', '시현', '민재', '성민', '진우', '예준', '지성', '규현', '도현', '상혁', '재윤', '태민', '영우', '찬영', '승우', '호진', '기현', '다온', '이안', '강민', '세훈']
 
+/** 사람(수석코치 등 스태프) 이름. 선수에게는 쓰지 않는다 */
 export function randomName(rng: Rng): string {
   return rng.pick(SURNAMES) + rng.pick(GIVEN)
 }
@@ -66,7 +67,7 @@ export function makePlayer(
   const growthRoom = age <= 21 ? rng.int(5, 16) : age <= 25 ? rng.int(2, 7) : rng.int(0, 3)
   return {
     id: `p${idNum}`,
-    name: randomName(rng),
+    no: 0,
     pos,
     age,
     ovr,
@@ -86,7 +87,38 @@ export function makePlayer(
 }
 
 export function generateSquad(rng: Rng, nextId: () => number, strength: number): Player[] {
-  return SQUAD_PLAN.map((pos) => makePlayer(rng, nextId(), pos, strength + (pos === 'GK' ? -1 : 0)))
+  const squad: Player[] = []
+  for (const pos of SQUAD_PLAN) {
+    const p = makePlayer(rng, nextId(), pos, strength + (pos === 'GK' ? -1 : 0))
+    assignNumber(squad, p)
+    squad.push(p)
+  }
+  return squad
+}
+
+const PREFERRED_NUMBERS: Record<Position, number[]> = {
+  GK: [1, 12, 21, 31, 41, 51],
+  DF: [2, 3, 4, 5, 13, 15, 16, 22, 23, 24, 25, 26],
+  MF: [6, 8, 10, 14, 17, 18, 20, 27, 28, 29, 30],
+  FW: [7, 9, 11, 19, 32, 33, 34, 35],
+}
+
+/** 구단 안에서 겹치지 않는 등번호를 포지션 성격에 맞게 배정한다 */
+export function assignNumber(squad: Player[], p: Player): void {
+  const used = new Set(squad.map((x) => x.no))
+  const pick = PREFERRED_NUMBERS[p.pos].find((n) => !used.has(n))
+  if (pick) {
+    p.no = pick
+    return
+  }
+  let n = 2
+  while (used.has(n)) n++
+  p.no = n
+}
+
+/** 화면에 보여줄 선수 호칭. 예: "9번 공격수" */
+export function playerLabel(p: { no: number; pos: Position }): string {
+  return p.no > 0 ? `${p.no}번 ${POS_LABEL[p.pos]}` : POS_LABEL[p.pos]
 }
 
 export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))

@@ -85,7 +85,7 @@ export function simulateMatch(rng: Rng, home: TeamSide, away: TeamSide): MatchSi
   const addGoals = (side: TeamSide, n: number) => {
     for (let i = 0; i < n; i++) {
       const p = pickScorer(rng, side.lineup)
-      scorers.push({ playerId: p.id, name: p.name, clubId: side.clubId, minute: rng.int(1, 90) })
+      scorers.push({ playerId: p.id, clubId: side.clubId, minute: rng.int(1, 90) })
     }
   }
   addGoals(home, hg)
@@ -100,26 +100,8 @@ export function simulateMatch(rng: Rng, home: TeamSide, away: TeamSide): MatchSi
   const shotsHome = Math.max(hg, Math.round(xgHome * 6 + rng.int(2, 6)))
   const shotsAway = Math.max(ag, Math.round(xgAway * 6 + rng.int(2, 6)))
 
-  // 경기 최우수 선수: 승리 팀 득점왕, 없으면 득점자, 없으면 승리 팀 최고 능력치
-  let motm: MatchSim['result']['motm']
-  const winnerSide = hg > ag ? home : ag > hg ? away : null
-  const tally = new Map<string, { name: string; clubId: string; goals: number }>()
-  for (const s of scorers) {
-    const t = tally.get(s.playerId) ?? { name: s.name, clubId: s.clubId, goals: 0 }
-    t.goals++
-    tally.set(s.playerId, t)
-  }
-  const candidates = [...tally.values()].filter((t) => !winnerSide || t.clubId === winnerSide.clubId)
-  if (candidates.length) {
-    const best = candidates.sort((a, b) => b.goals - a.goals)[0]
-    motm = { name: best.name, clubId: best.clubId }
-  } else if (winnerSide) {
-    const best = [...winnerSide.lineup].sort((a, b) => b.ovr - a.ovr)[0]
-    motm = { name: best.name, clubId: winnerSide.clubId }
-  }
-
   return {
-    result: { home: home.clubId, away: away.clubId, hg, ag, scorers, possession: poss, shotsHome, shotsAway, motm },
+    result: { home: home.clubId, away: away.clubId, hg, ag, scorers, possession: poss, shotsHome, shotsAway },
     xgHome,
     xgAway,
   }

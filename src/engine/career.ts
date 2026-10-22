@@ -6,7 +6,9 @@ import {
   clamp,
   FORMATION_IDS,
   generateSquad,
+  assignNumber,
   makePlayer,
+  playerLabel,
   teamOverall,
 } from './squad'
 import { computeStandings, generateSchedule, ROUNDS } from './season'
@@ -129,7 +131,6 @@ export function evaluateSeason(s: GameState, rng: Rng): void {
     trustDelta += 4
   }
 
-  const topScorer = [...club.squad].sort((a, b) => b.seasonGoals - a.seasonGoals)[0]
   const summary: SeasonSummary = {
     season: s.season,
     clubId: uid,
@@ -147,7 +148,6 @@ export function evaluateSeason(s: GameState, rng: Rng): void {
     promiseNotes,
     budgetStart: s.seasonStartBudget,
     budgetEnd: Math.round(club.budget),
-    topScorer: topScorer && topScorer.seasonGoals > 0 ? { name: topScorer.name, goals: topScorer.seasonGoals } : undefined,
   }
   s.seasons.push(summary)
 
@@ -229,16 +229,16 @@ export function runOffseason(s: GameState, rng: Rng): string[] {
       if (mine && p.age <= 22 && p.seasonApps >= 15) d += 0.8
       if (p.pushedReturn) {
         d -= rng.int(1, 3)
-        if (mine) lines.push(`${p.name} — 무리한 복귀의 여파로 기량이 떨어졌어요.`)
+        if (mine) lines.push(`${playerLabel(p)} — 무리한 복귀의 여파로 기량이 떨어졌어요.`)
         p.pushedReturn = false
       }
       p.ovr = clamp(Math.round(p.ovr + d), 38, Math.max(p.pot, p.ovr))
-      if (p.ovr > before + 2 && mine) lines.push(`${p.name} 성장 (${before} → ${p.ovr})`)
-      else if (p.ovr < before - 1 && mine && !lines.some((l) => l.startsWith(p.name))) lines.push(`${p.name} 하락 (${before} → ${p.ovr})`)
+      if (p.ovr > before + 2 && mine) lines.push(`${playerLabel(p)} 성장 (${before} → ${p.ovr})`)
+      else if (p.ovr < before - 1 && mine && !lines.some((l) => l.startsWith(playerLabel(p)))) lines.push(`${playerLabel(p)} 하락 (${before} → ${p.ovr})`)
 
       const retire = p.age >= 38 || (p.age >= 34 && rng.chance(0.25 + (p.age - 34) * 0.2))
       if (retire) {
-        if (mine) lines.push(`${p.name}(${p.age}세) 은퇴`)
+        if (mine) lines.push(`${playerLabel(p)}(${p.age}세) 은퇴`)
         continue
       }
       p.contractYears -= 1
@@ -247,9 +247,9 @@ export function runOffseason(s: GameState, rng: Rng): string[] {
         if (mine) {
           if (worth && rng.chance(0.85)) {
             p.contractYears = rng.int(1, 3)
-            lines.push(`${p.name} 재계약`)
+            lines.push(`${playerLabel(p)} 재계약`)
           } else {
-            lines.push(`${p.name} 계약 만료로 팀을 떠남`)
+            lines.push(`${playerLabel(p)} 계약 만료로 팀을 떠남`)
             continue
           }
         } else if (rng.chance(0.85)) p.contractYears = rng.int(1, 3)
@@ -272,8 +272,9 @@ export function runOffseason(s: GameState, rng: Rng): string[] {
         const kid = makePlayer(rng, 0, pos, clubById(club.id).strength, { youth: true })
         kid.id = newId(s, 'p')
         kid.contractYears = 3
+        assignNumber(club.squad, kid)
         club.squad.push(kid)
-        if (mine) lines.push(`${kid.name}(${kid.pos}, ${kid.age}세) 신인 영입`)
+        if (mine) lines.push(`${playerLabel(kid)}(${kid.age}세 신인) 영입`)
       }
     }
 

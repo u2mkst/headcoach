@@ -12,7 +12,8 @@ export interface Tactics {
 
 export interface Player {
   id: string
-  name: string
+  /** 등번호 (구단 안에서 유일, 시장 대기 중에는 0). 선수 이름은 두지 않는다 */
+  no: number
   pos: Position
   age: number
   ovr: number
@@ -75,7 +76,6 @@ export interface Fixture {
 
 export interface Scorer {
   playerId: string
-  name: string
   clubId: string
   minute: number
 }
@@ -91,7 +91,6 @@ export interface MatchResult {
   possession: number
   shotsHome: number
   shotsAway: number
-  motm?: { name: string; clubId: string }
 }
 
 export interface Offer {
@@ -177,7 +176,6 @@ export interface SeasonSummary {
   promiseNotes: string[]
   budgetStart: number
   budgetEnd: number
-  topScorer?: { name: string; goals: number }
 }
 
 export type CareerDecision =

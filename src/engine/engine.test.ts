@@ -198,9 +198,9 @@ describe('게임 흐름', () => {
       p.injuredRounds = 4
       const q = userClub(base).squad[5]
       const params = {
-        summary: '테스트', playerId: p.id, name: p.name, pos: p.pos, ovr: p.ovr, rounds: 4,
+        summary: '테스트', playerId: p.id, no: p.no, pos: p.pos, ovr: p.ovr, rounds: 4,
         club: '울산', price: 12, target: 4, age: 18, pot: 80, rivalName: '울산',
-        aId: p.id, bId: q.id, a: p.name, b: q.name,
+        aId: p.id, bId: q.id, a: '9번 공격수', b: '5번 수비수',
       }
       const ev = { uid: 'ev1', type, createdRound: 0, season: 1, params }
       const view = describeEvent(ev)
@@ -222,7 +222,7 @@ describe('게임 흐름', () => {
     const sp = userClub(s).squad.find((p) => p.id === star.id)!
     sp.age = 27
     sp.injuredRounds = 5
-    s.events.push({ uid: 'inj', type: 'injury', createdRound: 0, season: 1, params: { playerId: sp.id, name: sp.name, pos: sp.pos, ovr: sp.ovr, rounds: 5 } })
+    s.events.push({ uid: 'inj', type: 'injury', createdRound: 0, season: 1, params: { playerId: sp.id, no: sp.no, pos: sp.pos, ovr: sp.ovr, rounds: 5 } })
     ;[s] = chooseEvent(s, 'inj', 'rush')
     expect(userClub(s).squad.find((p) => p.id === star.id)!.pushedReturn).toBe(true)
     for (let i = 0; i < 18; i++) [s] = playRound(s)
@@ -306,5 +306,27 @@ describe('시즌 결산', () => {
     expect(s.promises[0]).toMatchObject({ type: 'youth', season: 1 })
     for (let i = 0; i < 18; i++) [s] = playRound(s)
     expect(s.seasons[0].promiseNotes.some((n) => n.includes('유소년 기용 약속'))).toBe(true)
+  })
+})
+
+describe('선수 이름 없음', () => {
+  it('선수는 이름 대신 구단 안에서 유일한 등번호를 가진다', () => {
+    let s = startedGame(41)
+    for (let i = 0; i < 18; i++) [s] = playRound(s)
+    const next = finishSeason(s, s.pendingCareer!.decision.kind === 'fired' ? s.pendingCareer!.offers[0].clubId : null)
+    for (const state of [s, next]) {
+      for (const club of Object.values(state.clubs)) {
+        const nos = club.squad.map((p) => p.no)
+        expect(nos.every((n) => n > 0)).toBe(true)
+        expect(new Set(nos).size).toBe(nos.length)
+        for (const p of club.squad) expect('name' in p).toBe(false)
+      }
+    }
+  })
+  it('이벤트·득점 기록에도 선수 이름이 들어가지 않는다', () => {
+    let s = startedGame(42)
+    for (let i = 0; i < 18; i++) [s] = playRound(s)
+    for (const r of s.results) for (const g of r.scorers) expect('name' in g).toBe(false)
+    expect(s.seasons[0] && 'topScorer' in s.seasons[0]).toBeFalsy()
   })
 })

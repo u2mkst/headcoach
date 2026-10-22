@@ -1,7 +1,7 @@
 import { clubById, competitionById } from '../data/clubs'
 import { describeEvent } from '../engine/events'
 import { EXPOSURE_AFTER } from '../engine/season'
-import { PHILOSOPHY_LABEL } from '../engine/squad'
+import { PHILOSOPHY_LABEL, playerLabel } from '../engine/squad'
 import { userClub } from '../engine/helpers'
 import type { GameState } from '../engine/types'
 import { Bar, Chevron, CompetitionLogo, Crest, FormDots } from './components'
@@ -50,7 +50,7 @@ export function Home({
     todos.push({
       key: 'injured',
       label: `부상 선수 ${injured.length}명`,
-      sub: injured.map((p) => p.name).slice(0, 3).join(', '),
+      sub: injured.map((p) => playerLabel(p)).slice(0, 3).join(', '),
       onClick: () => onGo('squad'),
     })
   }

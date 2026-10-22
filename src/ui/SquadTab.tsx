@@ -11,6 +11,7 @@ import {
   PHILOSOPHY_DESC,
   PHILOSOPHY_LABEL,
   POS_LABEL,
+  playerLabel,
   resolveLineup,
 } from '../engine/squad'
 import type { GameState, Level, Philosophy, Player, Position } from '../engine/types'
@@ -181,7 +182,7 @@ function Lineup({ state, onChange }: { state: GameState; onChange: (s: GameState
               <button key={p.id} className="item" onClick={() => setSwapping(p)}>
                 <span className="pos">{pos}</span>
                 <div className="grow">
-                  <div style={{ fontWeight: 600 }}>{p.name}</div>
+                  <div style={{ fontWeight: 600 }}>{playerLabel(p)}</div>
                   <div className="label">
                     {p.age}세 · 사기 {Math.round(p.morale)}
                   </div>
@@ -202,7 +203,7 @@ function Lineup({ state, onChange }: { state: GameState; onChange: (s: GameState
       )}
       {swapping && (
         <Sheet onClose={() => setSwapping(null)}>
-          <h2 className="card-title">{swapping.name} 대신 누구를 뛰게 할까요?</h2>
+          <h2 className="card-title">{playerLabel(swapping)} 대신 누구를 뛰게 할까요?</h2>
           {candidates.length === 0 && <p className="empty">바꿀 수 있는 선수가 없어요</p>}
           <div className="list">
             {candidates.map((c) => (
@@ -217,7 +218,7 @@ function Lineup({ state, onChange }: { state: GameState; onChange: (s: GameState
                 <span className="pos">{c.pos}</span>
                 <div className="grow">
                   <div className="title" style={{ fontSize: 15 }}>
-                    {c.name}
+                    {playerLabel(c)}
                   </div>
                   <div className="desc">
                     {c.age}세 · 컨디션 {Math.round(c.condition)} · 사기 {Math.round(c.morale)}
@@ -250,7 +251,7 @@ function Players({ state, onChange, toast }: { state: GameState; onChange: (s: G
               <span className="pos">{p.pos}</span>
               <div className="grow">
                 <div style={{ fontWeight: 600 }}>
-                  {p.name}{' '}
+                  {playerLabel(p)}{' '}
                   {p.injuredRounds > 0 && <span className="tag alert">부상 {p.injuredRounds}R</span>}
                   {p.age <= 21 && <span className="tag">유망주</span>}
                 </div>
@@ -291,7 +292,7 @@ function Players({ state, onChange, toast }: { state: GameState; onChange: (s: G
       </section>
       {selling && (
         <Sheet onClose={() => setSelling(null)}>
-          <h2 className="card-title">{josa(selling.name, '을/를')} 보낼까요?</h2>
+          <h2 className="card-title">{josa(playerLabel(selling), '을/를')} 보낼까요?</h2>
           <p className="label">이적료 {sellPrice(selling)}억이 예산에 들어와요. 되돌릴 수 없어요.</p>
           <div className="row">
             <button className="btn ghost" style={{ flex: 1 }} onClick={() => setSelling(null)}>
@@ -305,7 +306,7 @@ function Players({ state, onChange, toast }: { state: GameState; onChange: (s: G
                 if (err) toast(err)
                 else {
                   onChange(next)
-                  toast(`${selling.name} 이적 완료`)
+                  toast(`${playerLabel(selling)} 이적 완료`)
                 }
                 setSelling(null)
                 setOpen(null)
@@ -337,7 +338,7 @@ function Market({ state, onChange, toast }: { state: GameState; onChange: (s: Ga
           <button key={p.id} className="item" onClick={() => setBuying(p)}>
             <span className="pos">{p.pos}</span>
             <div className="grow">
-              <div style={{ fontWeight: 600 }}>{p.name}</div>
+              <div style={{ fontWeight: 600 }}>{playerLabel(p)}</div>
               <div className="label">
                 {p.age}세 · 잠재력 {p.pot} · {buyPrice(state, p)}억
               </div>
@@ -350,7 +351,7 @@ function Market({ state, onChange, toast }: { state: GameState; onChange: (s: Ga
       <p className="notice">이적 시장은 4라운드마다, 그리고 오프시즌에 새로 바뀌어요.</p>
       {buying && (
         <Sheet onClose={() => setBuying(null)}>
-          <h2 className="card-title">{buying.name} 영입</h2>
+          <h2 className="card-title">{POS_LABEL[buying.pos]} 영입</h2>
           <div className="stack">
             <div className="row between">
               <span className="label">포지션</span>
@@ -379,7 +380,7 @@ function Market({ state, onChange, toast }: { state: GameState; onChange: (s: Ga
                 if (err) toast(err)
                 else {
                   onChange(next)
-                  toast(`${buying.name} 영입 완료`)
+                  toast(`${POS_LABEL[buying.pos]} 영입 완료`)
                 }
                 setBuying(null)
               }}
