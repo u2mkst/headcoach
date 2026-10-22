@@ -104,3 +104,13 @@ src/
 보강 없이 전술만 고정하면 계속 중위권(약 7위)이고, 매달 보강하면 서서히 올라갑니다(4시즌 뒤 평균 3~4위).
 성장형이라 구단 목표도 전력 순위에 맞춰 같이 올라갑니다.
 실제 구단 전력 수치로 교체한 뒤에는 이 스크립트로 다시 맞추세요.
+
+## 배포 (GitHub Pages)
+
+`main` 또는 `claude/build-as-is-n8h9eq` 브랜치에 푸시하면 `.github/workflows/deploy.yml`이
+테스트 → 빌드 → Pages 배포를 실행합니다. 하위 경로(`/저장소이름/`)에서 서비스되므로
+빌드할 때 `VITE_BASE`를 지정하고, 정적 파일 경로는 `src/data/clubs.ts`가 `BASE_URL`을 붙여 만듭니다.
+
+- 최초 1회: 저장소 **Settings → Pages → Build and deployment → Source** 를 **GitHub Actions** 로 설정
+- 로컬에서 같은 경로로 확인: `VITE_BASE=/headcoach/ npm run build && VITE_BASE=/headcoach/ npx vite preview`
+- 주소: https://u2mkst.github.io/headcoach/

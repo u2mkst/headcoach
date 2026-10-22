@@ -4,6 +4,9 @@
  * 실제 이름·엠블럼을 공개 배포하거나 수익화할 때는 라이선스 확인이 필요하다.
  */
 
+/** 배포 경로(GitHub Pages 등 하위 경로)에 맞춰 정적 파일 경로를 만든다 */
+const asset = (path: string) => `${import.meta.env?.BASE_URL ?? '/'}${path}`
+
 export interface Competition {
   id: string
   name: string
@@ -27,14 +30,14 @@ export interface ClubData {
 }
 
 export const COMPETITIONS: Competition[] = [
-  { id: 'league_k1', name: 'K리그1', short: 'K1', level: 1, logo: '/assets/competitions/league_k1.png' },
+  { id: 'league_k1', name: 'K리그1', short: 'K1', level: 1, logo: asset('assets/competitions/league_k1.png') },
 ]
 
 export const LEAGUE_ID = 'league_k1'
 
 const club = (n: number, name: string, short: string, strength: number, color: string): ClubData => {
   const id = `club_${String(n).padStart(3, '0')}`
-  return { id, name, short, country: 'KR', league: LEAGUE_ID, strength, color, crest: `/assets/crests/${id}.png` }
+  return { id, name, short, country: 'KR', league: LEAGUE_ID, strength, color, crest: asset(`assets/crests/${id}.png`) }
 }
 
 export const CLUBS: ClubData[] = [
