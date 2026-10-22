@@ -68,8 +68,9 @@ export interface ClubSim {
   squad: Player[]
   philosophy: Philosophy
   formation: FormationId
-  /** 구단 이름 기준 순위 계산용 (선수단 평균) */
   budget: number
+  /** 지금 소속 리그 (승강으로 바뀐다) */
+  league: string
 }
 
 export interface Fixture {
@@ -85,7 +86,14 @@ export interface Scorer {
 
 export interface MatchResult {
   season: number
+  /** 리그 라운드 번호. 챔피언스리그는 차전 순번 */
   round: number
+  /** 대회 id (k1, k2, epl, ... , ucl) */
+  comp: string
+  /** 챔피언스리그 단계 표시 (예: 리그 페이즈 3차전) */
+  stage?: string
+  /** 승부차기 승자 쪽 ('h' | 'a') */
+  pens?: 'h' | 'a'
   home: string
   away: string
   hg: number
@@ -171,10 +179,65 @@ export interface MonthPlan {
   level: SpendLevel
 }
 
+/** 챔피언스리그 한 경기(요약) — 순위표 계산과 대진표 표시용 */
+export interface MiniResult {
+  home: string
+  away: string
+  hg: number
+  ag: number
+}
+
+export interface ClTie {
+  /** a: 상위 시드, b: 하위 시드 */
+  a: string
+  b: string
+  legs: MiniResult[]
+  winner?: string
+  /** 승부차기로 가려졌는가 */
+  pens?: boolean
+}
+
+export type ClPhase = 'league' | 'po' | 'r16' | 'qf' | 'sf' | 'final' | 'done'
+
+export interface ClState {
+  season: number
+  entrants: string[]
+  phase: ClPhase
+  /** 리그 페이즈 8경기일 */
+  fixtures: Fixture[][]
+  matchday: number
+  /** 다음에 치를 단계 (CL_SEQUENCE의 인덱스) */
+  step: number
+  matches: MiniResult[]
+  /** 리그 페이즈 최종 순위 (경기일이 모두 끝난 뒤) */
+  order: string[]
+  po: ClTie[]
+  r16: ClTie[]
+  qf: ClTie[]
+  sf: ClTie[]
+  final: ClTie[]
+  winner?: string
+}
+
+export interface PromoResult {
+  up: string[]
+  down: string[]
+  /** 승강 플레이오프 (K1 11위 vs K2 2위) */
+  playoff?: { k1: string; k2: string; winner: string; agg: string }
+}
+
+export interface ClHistoryItem {
+  season: number
+  winner: string
+  runnerUp: string
+}
+
 export interface MonthReport {
   season: number
-  /** 1~6 (3월~8월) */
+  /** 0부터 시작하는 달 순번 */
   month: number
+  /** 화면에 쓰는 달 이름 (예: 3월) */
+  label: string
   /** 이번 달 내 경기 결과 */
   results: MatchResult[]
   w: number
@@ -208,6 +271,11 @@ export type Outcome = 'champion' | 'exceeded' | 'achieved' | 'fell_short' | 'fai
 export interface SeasonSummary {
   season: number
   clubId: string
+  league: string
+  /** 시즌 끝에 승격/강등 여부 */
+  moved?: 'promoted' | 'relegated'
+  /** 챔피언스리그 최종 성적 (출전했을 때) */
+  cl?: string
   rank: number
   targetRank: number
   points: number
@@ -264,12 +332,9 @@ export interface TacticMemory {
   lastPhilosophy: Philosophy | null
 }
 
-export type Difficulty = 'easy' | 'normal' | 'hard'
-
 export interface GameState {
   version: number
   rng: number
-  difficulty: Difficulty
   phase: Phase
   manager: Manager | null
   userClubId: string | null
@@ -277,10 +342,23 @@ export interface GameState {
   offers: Offer[]
   coachCandidates: Coach[]
   season: number
-  /** 끝난 라운드 수 (0~18) */
+  /** 끝난 리그 라운드 수 */
   round: number
+  /** 지금 진행할 달 (0부터) */
+  month: number
   clubs: Record<string, ClubSim>
+  /** 내 리그의 일정 */
   fixtures: Fixture[][]
+  /** K리그1 스플릿 그룹 (33라운드 이후) */
+  split: { top: string[]; bottom: string[] } | null
+  /** 리그별 지난 시즌 최종 순위 (구단 id 순서) */
+  lastFinal: Record<string, string[]>
+  cl: ClState | null
+  clHistory: ClHistoryItem[]
+  /** 시즌 끝에 확정된 승강 (다음 시즌 준비에서 적용) */
+  promo: PromoResult | null
+  /** 최종 목표(UEFA 챔피언스리그 우승) 달성 횟수 */
+  clTitles: number
   results: MatchResult[]
   tactics: Tactics
   tacticMemory: TacticMemory

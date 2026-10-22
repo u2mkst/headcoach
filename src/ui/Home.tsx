@@ -5,8 +5,9 @@ import { LEVEL_LABEL as TACTIC_LEVEL, PHILOSOPHY_LABEL, playerLabel } from '../e
 import { userClub } from '../engine/helpers'
 import type { GameState } from '../engine/types'
 import { Bar, Chevron, CompetitionLogo, Crest, FormDots } from './components'
-import { currentMonthLabel, MATCHUP_LABEL, matchupOf, monthFixtures, standingsOf, userRank, userResults } from './derive'
+import { currentMonthLabel, MATCHUP_LABEL, matchupOf, monthClFixtures, monthFixtures, standingsOf, userRank, userResults } from './derive'
 import { planSummary } from './Plan'
+import { planScale } from '../engine/reinforce'
 import type { TabId } from './App'
 
 export const Delta = ({ v }: { v: number }) => {
@@ -36,6 +37,7 @@ export function Home({
   const rank = userRank(state)
   const row = table.find((x) => x.clubId === uid)
   const fixtures = monthFixtures(state)
+  const clFixtures = monthClFixtures(state)
   const sim = userClub(state)
   const injured = sim.squad.filter((p) => p.injuredRounds > 0)
   const streak = state.tacticMemory.streak
@@ -121,7 +123,13 @@ export function Home({
             <span className="big tnum">{row ? (row.gf - row.ga > 0 ? `+${row.gf - row.ga}` : row.gf - row.ga) : 0}</span>
           </div>
         </div>
-        <FormDots results={userResults(state)} clubId={uid} />
+        <div className="row between" style={{ background: 'var(--gold-soft)', borderRadius: 12, padding: '8px 12px' }}>
+          <span className="label" style={{ color: '#a9791f' }}>
+            최종 목표
+          </span>
+          <b style={{ color: '#a9791f', fontSize: 13 }}>UEFA 챔피언스리그 우승{state.clTitles > 0 ? ` · ${state.clTitles}회 달성` : ''}</b>
+        </div>
+        <FormDots results={userResults(state).filter((r) => r.comp === club.league)} clubId={uid} />
         <div className="divider" style={{ margin: 0 }} />
         <div className="stack" style={{ gap: 8 }}>
           <div className="row between">
@@ -205,23 +213,23 @@ export function Home({
         <button className="item" onClick={onPlan}>
           <div className="grow">
             <div className="label">전력 보강 예산 · 내 예산 {Math.round(sim.budget)}억</div>
-            <div style={{ fontWeight: 600, color: state.monthPlan ? 'var(--ink)' : 'var(--muted)' }}>{planSummary(state.monthPlan)}</div>
+            <div style={{ fontWeight: 600, color: state.monthPlan ? 'var(--ink)' : 'var(--muted)' }}>{planSummary(state.monthPlan, planScale(state))}</div>
           </div>
           <Chevron />
         </button>
       </section>
 
-      {fixtures.length > 0 && (
+      {(fixtures.length > 0 || clFixtures.length > 0) && (
         <section className="card stack" aria-label="이번 달 일정">
           <div className="row between">
             <h2 className="card-title">{monthLabel} 일정</h2>
-            <span className="tag">{fixtures.length}경기</span>
+            <span className="tag">{fixtures.length + clFixtures.length}경기</span>
           </div>
           <div>
             {fixtures.map((f) => {
               const opp = state.clubs[f.oppId]
               return (
-                <div key={f.round} className="row" style={{ padding: '8px 0' }}>
+                <div key={`l${f.round}`} className="row" style={{ padding: '8px 0' }}>
                   <span className="label tnum" style={{ width: 30 }}>
                     {f.round}R
                   </span>
@@ -234,6 +242,20 @@ export function Home({
                 </div>
               )
             })}
+            {clFixtures.map((f, i) => (
+              <div key={`c${i}`} className="row" style={{ padding: '8px 0' }}>
+                <span className="tag gold" style={{ width: 30, justifyContent: 'center', padding: 0 }}>
+                  CL
+                </span>
+                {f.oppId ? <Crest clubId={f.oppId} size={28} /> : <span style={{ width: 28 }} />}
+                <div className="grow">
+                  <div style={{ fontWeight: 600 }}>
+                    {f.oppId ? clubById(f.oppId).short : '상대 미정'} {f.home !== undefined && <span className="label">{f.home ? '홈' : '원정'}</span>}
+                  </div>
+                  <div className="label ellipsis">{f.label}</div>
+                </div>
+              </div>
+            ))}
           </div>
           <button className="btn primary block" onClick={onPlay}>
             {monthLabel} 진행

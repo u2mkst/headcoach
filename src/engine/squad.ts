@@ -1,5 +1,6 @@
 import type { FormationId, Level, Philosophy, Player, Position } from './types'
 import type { Rng } from './rng'
+import { economyScale } from './leagues'
 
 export const FORMATIONS: Record<
   FormationId,
@@ -63,7 +64,7 @@ export function makePlayer(
   const youth = !!opts.youth
   const age = opts.age ?? (youth ? rng.int(17, 19) : Math.round(Math.min(37, Math.max(19, rng.normal(26, 4.2)))))
   const base = youth ? strength - 14 : strength
-  const ovr = clamp(Math.round(rng.normal(base, 4.5)), 40, 92)
+  const ovr = clamp(Math.round(rng.normal(base, 4.5)), 35, 96)
   const growthRoom = age <= 21 ? rng.int(5, 16) : age <= 25 ? rng.int(2, 7) : rng.int(0, 3)
   return {
     id: `p${idNum}`,
@@ -71,7 +72,7 @@ export function makePlayer(
     pos,
     age,
     ovr,
-    pot: clamp(ovr + growthRoom, ovr, 95),
+    pot: clamp(ovr + growthRoom, ovr, 98),
     condition: 90 + rng.int(0, 10),
     morale: 60 + rng.int(0, 20),
     injuredRounds: 0,
@@ -191,9 +192,10 @@ export function teamOverall(squad: Player[]): number {
   return avg(top.map((p) => p.ovr))
 }
 
-/** 라운드당 선수단 인건비 (억 원). 선수가 많고 능력치가 높을수록 커진다 */
-export function wageBill(squad: Player[]): number {
-  return squad.length * 0.034 + squad.reduce((a, p) => a + Math.max(0, p.ovr - 60), 0) * 0.007
+/** 라운드당 선수단 인건비 (억 원). 구단 규모에 비례하고, 선수가 많고 능력치가 높을수록 커진다 */
+export function wageBill(squad: Player[], clubStrength: number): number {
+  const base = squad.length * 0.034 + squad.reduce((a, p) => a + Math.max(0, p.ovr - (clubStrength - 5)), 0) * 0.007
+  return base * economyScale(clubStrength)
 }
 
 /** 이적 시장 가치 (억 원) */

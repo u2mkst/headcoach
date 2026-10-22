@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { clubById, competitionById } from '../data/clubs'
-import { targetLabel } from '../engine/career'
+import { targetLabel } from '../engine/leagues'
 import {
   backToOffers,
   chooseCoach,
@@ -11,7 +11,7 @@ import {
   startSeason,
 } from '../engine/game'
 import { PHILOSOPHY_LABEL } from '../engine/squad'
-import type { Abilities, Difficulty, GameState } from '../engine/types'
+import type { Abilities, GameState } from '../engine/types'
 import { BottomBar, Crest, Sheet } from './components'
 
 export const ABILITY_INFO: { key: keyof Abilities; label: string; desc: string }[] = [
@@ -46,7 +46,6 @@ export function Onboarding({ state, onChange }: { state: GameState; onChange: (s
   const [name, setName] = useState('')
   const [nationality, setNationality] = useState(NATIONALITIES[0])
   const [style, setStyle] = useState('')
-  const [difficulty, setDifficulty] = useState<Difficulty>('normal')
   const [pickedClub, setPickedClub] = useState('')
   const [pickedCoach, setPickedCoach] = useState('')
 
@@ -115,22 +114,6 @@ export function Onboarding({ state, onChange }: { state: GameState; onChange: (s
                 )
               })}
             </div>
-            <div className="stack" style={{ gap: 8 }}>
-              <span className="label">난이도</span>
-              <div className="chips">
-                {(
-                  [
-                    ['easy', '쉬움'],
-                    ['normal', '보통'],
-                    ['hard', '어려움'],
-                  ] as [Difficulty, string][]
-                ).map(([id, label]) => (
-                  <button key={id} className="chip" aria-pressed={difficulty === id} onClick={() => setDifficulty(id)}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
           </>
         )}
         <BottomBar>
@@ -144,10 +127,10 @@ export function Onboarding({ state, onChange }: { state: GameState; onChange: (s
             disabled={(step === 0 && !name.trim()) || (step === 1 && !style)}
             onClick={() => {
               if (step < 1) setStep(step + 1)
-              else onChange(createManager(state, { name, nationality, style, difficulty }))
+              else onChange(createManager(state, { name, nationality, style }))
             }}
           >
-            {step < 1 ? '다음' : '구단 제안 받기'}
+            {step < 1 ? '다음' : '구단 고르러 가기'}
           </button>
         </BottomBar>
       </div>
@@ -155,35 +138,45 @@ export function Onboarding({ state, onChange }: { state: GameState; onChange: (s
   }
 
   if (state.phase === 'offers') {
+    const groups = ['k1', 'k2'].map((lg) => ({
+      lg,
+      offers: state.offers.filter((o) => clubById(o.clubId).league === lg),
+    }))
     return (
       <div className="onboard">
         <Steps index={2} />
         <h1 className="question">{'어느 구단에서\n시작할까요?'}</h1>
-        <p className="hint">{state.manager?.name} 감독에게 세 구단이 연락했어요.</p>
-        <div className="list">
-          {state.offers.map((o) => {
-            const c = clubById(o.clubId)
-            return (
-              <button key={o.clubId} className="option" aria-pressed={pickedClub === o.clubId} onClick={() => setPickedClub(o.clubId)}>
-                <Crest clubId={o.clubId} size={48} />
-                <div className="grow">
-                  <div className="title">{c.name}</div>
-                  <div className="desc">
-                    {competitionById(c.league).name} · 목표 {o.targetRank}위 이내 ({targetLabel(o.targetRank)})
-                  </div>
-                  <div className="chips" style={{ marginTop: 6 }}>
+        <p className="hint">맡고 싶은 구단을 직접 골라요. K리그에서 시작해 유럽 정상까지 올라가는 길이에요.</p>
+        {groups.map((g) => (
+          <section key={g.lg} className="stack" style={{ gap: 8 }}>
+            <h2 className="card-title" style={{ padding: '0 4px' }}>
+              {competitionById(g.lg).name}
+            </h2>
+            <div className="list">
+              {g.offers.map((o) => {
+                const c = clubById(o.clubId)
+                return (
+                  <button key={o.clubId} className="option" aria-pressed={pickedClub === o.clubId} onClick={() => setPickedClub(o.clubId)}>
+                    <Crest clubId={o.clubId} size={44} />
+                    <div className="grow">
+                      <div className="title" style={{ fontSize: 15 }}>
+                        {c.name}
+                      </div>
+                      <div className="desc">
+                        목표 {o.targetRank}위 이내 · {targetLabel(o.targetRank, g.lg)}
+                      </div>
+                    </div>
                     <span className="tag">예산 {o.budget}억</span>
-                    <span className="tag">인내심 {o.patience}시즌</span>
-                  </div>
-                </div>
-                <span className="radio" />
-              </button>
-            )
-          })}
-        </div>
+                    <span className="radio" />
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        ))}
         <BottomBar>
           <button className="btn primary" disabled={!pickedClub} onClick={() => onChange(chooseOffer(state, pickedClub))}>
-            이 구단으로 결정
+            {pickedClub ? `${clubById(pickedClub).short} 결정` : '구단을 골라 주세요'}
           </button>
         </BottomBar>
       </div>

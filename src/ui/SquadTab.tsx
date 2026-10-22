@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { clubById } from '../data/clubs'
 import { setMonthPlan, setTactics } from '../engine/game'
 import { userClub } from '../engine/helpers'
-import { FOCUS_LABEL, LINE_POS } from '../engine/reinforce'
+import { FOCUS_LABEL, LINE_POS, planScale } from '../engine/reinforce'
 import { EXPOSURE_AFTER, nextTacticMemory } from '../engine/season'
 import {
   FORMATION_IDS,
@@ -225,7 +225,7 @@ function Plan({ state, onChange, toast }: { state: GameState; onChange: (s: Game
         <div className="divider" style={{ margin: 0 }} />
         <div className="col">
           <span className="label">{currentMonthLabel(state)} 보강 계획</span>
-          <b style={{ color: plan ? 'var(--ink)' : 'var(--muted)' }}>{planSummary(plan)}</b>
+          <b style={{ color: plan ? 'var(--ink)' : 'var(--muted)' }}>{planSummary(plan, planScale(state))}</b>
         </div>
         <button className="btn primary block" onClick={() => setOpen(true)}>
           {plan ? '계획 바꾸기' : '쓸 곳 정하기'}

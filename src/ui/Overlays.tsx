@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { clubById } from '../data/clubs'
 import { describeEvent } from '../engine/events'
-import { MONTH_LABEL } from '../engine/season'
 import type { EventOutcome, MatchResult, MonthReport, PendingEvent } from '../engine/types'
 import { Bar, BottomBar, Crest } from './components'
 import { KIND_LABEL, resultOf } from './derive'
@@ -52,7 +51,7 @@ export function MonthReportScreen({ report, clubId, onContinue }: { report: Mont
       <div className="inner">
         <div>
           <span className="tag">
-            {report.season}시즌 · {MONTH_LABEL[report.month - 1]} 결산
+            {report.season}시즌 · {report.label} 결산
           </span>
         </div>
         <h1 className="question" style={{ fontSize: 26 }}>
@@ -171,21 +170,21 @@ function MatchRow({ r, clubId }: { r: MatchResult; clubId: string }) {
   return (
     <div className="item">
       <span className="label tnum" style={{ width: 28 }}>
-        {r.round}R
+        {r.comp === 'ucl' ? 'CL' : `${r.round}R`}
       </span>
       <Crest clubId={r.home} size={26} />
-      <span className="grow" style={side(r.home)}>
+      <span className="grow ellipsis" style={side(r.home)}>
         {clubById(r.home).short}
       </span>
-      <b className="tnum">
+      <b className="tnum" style={{ flex: 'none' }}>
         {r.hg} : {r.ag}
       </b>
-      <span className="grow" style={{ ...side(r.away), textAlign: 'right' }}>
+      <span className="grow ellipsis" style={{ ...side(r.away), textAlign: 'right' }}>
         {clubById(r.away).short}
       </span>
       <Crest clubId={r.away} size={26} />
       <span className={`tag ${kind === 'w' ? 'accent' : ''}`} style={{ width: 28, justifyContent: 'center', padding: 0 }}>
-        {KIND_LABEL[kind]}
+        {r.pens ? (r.pens === (r.home === clubId ? 'h' : 'a') ? '승' : '패') : KIND_LABEL[kind]}
       </span>
     </div>
   )

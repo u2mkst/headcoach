@@ -2,7 +2,6 @@ import type { Rng } from './rng'
 import { clubById } from '../data/clubs'
 import { pushFeed } from './helpers'
 import { FOCUS_LABEL } from './reinforce'
-import { MONTH_LABEL } from './season'
 import type { FanTopic, GameState, MonthPlan, MonthReport, Standing } from './types'
 
 const OUTLETS = ['스포츠 타임스', '풋볼 데일리', '킥오프 뉴스', '그라운드 리포트']
@@ -37,7 +36,7 @@ export function generateMonthMedia(
   const uid = s.userClubId as string
   const me = clubById(uid).short
   const mgr = s.manager?.name ?? '감독'
-  const m = MONTH_LABEL[rep.month - 1]
+  const m = rep.label
   const rank = rep.rankAfter
   const phil = s.tactics.philosophy
   const streak = s.tacticMemory.streak
@@ -118,6 +117,13 @@ export function generateMonthMedia(
 
   if (support >= 70) add('감독', 'good', `${mgr} 감독 재계약 청원합니다`, 2)
   if (support <= 30) add('감독', 'bad', '감독 교체 여론이 커지고 있다', 3)
+
+  // 어느 달에나 나오는 잡담 — 조건에 맞는 글이 적은 달에도 피드가 비지 않게 한다
+  add('성적', 'neutral', `${me} 다음 달 일정 벌써 기대된다`, 0.6)
+  add('전술', 'neutral', '이번 달 라인업 짜임새는 괜찮아 보였다', 0.6)
+  add('감독', 'neutral', `${mgr} 감독 인터뷰는 늘 무난하다`, 0.5)
+  add('성적', 'neutral', '순위표는 아직 아무도 모른다', 0.5)
+  add('보강', 'neutral', '이적 시장에서 누가 올지 요즘 제일 궁금하다', 0.4)
 
   // 가중치로 6개를 뽑는다 (중복 없이)
   const chosen: Cand[] = []

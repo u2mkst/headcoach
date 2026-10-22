@@ -290,6 +290,7 @@ p {
   color: var(--accent);
 }
 .tag {
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   height: 24px;

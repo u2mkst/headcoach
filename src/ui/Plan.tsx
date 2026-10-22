@@ -8,13 +8,14 @@ import {
   LEVEL_ORDER,
   LINE_POS,
   planDelta,
+  planScale,
 } from '../engine/reinforce'
 import type { GameState, MonthPlan, SpendFocus, SpendLevel } from '../engine/types'
 import { Sheet } from './components'
 import { lineInfos } from './derive'
 
-export const planSummary = (p: MonthPlan | null) =>
-  p ? `${FOCUS_LABEL[p.focus]} · ${LEVEL_LABEL[p.level]} (${p.focus === 'save' ? '+' : '-'}${Math.abs(planDelta(p))}억)` : '아직 정하지 않았어요'
+export const planSummary = (p: MonthPlan | null, scale = 1) =>
+  p ? `${FOCUS_LABEL[p.focus]} · ${LEVEL_LABEL[p.level]} (${p.focus === 'save' ? '+' : '-'}${Math.abs(planDelta(p, scale))}억)` : '아직 정하지 않았어요'
 
 /** "이번 달 전력 보강 예산, 어디에 쓸까요?" 한 줄 결정 시트 */
 export function PlanSheet({
@@ -27,11 +28,12 @@ export function PlanSheet({
   onClose: () => void
 }) {
   const budget = userClub(state).budget
+  const scale = planScale(state)
   const lines = lineInfos(state)
   const [focus, setFocus] = useState<SpendFocus>(state.monthPlan?.focus ?? 'attack')
   const [level, setLevel] = useState<SpendLevel>(state.monthPlan?.level ?? 'medium')
   const lineOf = (f: SpendFocus) => lines.find((l) => l.pos === LINE_POS[f])
-  const affordable = (l: SpendLevel) => focus === 'save' || -planDelta({ focus, level: l }) <= budget
+  const affordable = (l: SpendLevel) => focus === 'save' || -planDelta({ focus, level: l }, scale) <= budget
 
   return (
     <Sheet onClose={onClose}>
@@ -64,7 +66,7 @@ export function PlanSheet({
       </div>
       <div className="chips">
         {LEVEL_ORDER.map((l) => {
-          const d = planDelta({ focus, level: l })
+          const d = planDelta({ focus, level: l }, scale)
           return (
             <button key={l} className="chip" aria-pressed={level === l} disabled={!affordable(l)} onClick={() => setLevel(l)} style={!affordable(l) ? { opacity: 0.4 } : undefined}>
               {LEVEL_LABEL[l]} {d > 0 ? `+${d}` : d}억

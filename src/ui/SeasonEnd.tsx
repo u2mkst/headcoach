@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { clubById } from '../data/clubs'
-import { OUTCOME_LABEL, targetLabel } from '../engine/career'
+import { clubById, competitionById } from '../data/clubs'
+import { OUTCOME_LABEL } from '../engine/career'
+import { targetLabel } from '../engine/leagues'
 import { finishSeason } from '../engine/game'
 import { josa } from '../engine/josa'
 import type { GameState } from '../engine/types'
@@ -28,6 +29,20 @@ export function SeasonEnd({ state, onChange }: { state: GameState; onChange: (s:
             {OUTCOME_LABEL[summary.outcome]}
           </h1>
         </div>
+        {summary.cl === '우승' && (
+          <section className="card stack" style={{ background: 'var(--gold-soft)', textAlign: 'center' }}>
+            <Icon name="trophy" className="trophy" />
+            <h2 className="question" style={{ fontSize: 24, color: '#a9791f' }}>
+              UEFA 챔피언스리그 우승
+            </h2>
+            <p style={{ color: '#a9791f', fontWeight: 600 }}>유럽 정상에 올랐어요. 벤치에서 시작한 감독이 명장이 됐습니다.</p>
+          </section>
+        )}
+        {summary.moved && (
+          <div>
+            <span className={`tag ${summary.moved === 'promoted' ? 'accent' : 'alert'}`}>{summary.moved === 'promoted' ? 'K리그1 승격' : 'K리그2 강등'}</span>
+          </div>
+        )}
         {summary.upgraded && <p className="hint">순위는 아쉬웠지만 다른 성과를 인정받아 평가가 한 단계 올랐어요.</p>}
 
         <section className="card stack">
@@ -36,7 +51,8 @@ export function SeasonEnd({ state, onChange }: { state: GameState; onChange: (s:
             <div className="grow">
               <div className="card-title">{club.name}</div>
               <div className="label">
-                목표 {summary.targetRank}위 이내 ({targetLabel(summary.targetRank)})
+                {competitionById(summary.league).name} · 목표 {summary.targetRank}위 이내 ({targetLabel(summary.targetRank, summary.league)})
+                {summary.cl && ` · 챔피언스리그 ${summary.cl}`}
               </div>
             </div>
           </div>
@@ -114,7 +130,7 @@ export function SeasonEnd({ state, onChange }: { state: GameState; onChange: (s:
                     {clubById(o.clubId).name}
                   </div>
                   <div className="desc">
-                    {fired ? '새 감독으로 부임' : '이적 제안'} · 목표 {o.targetRank}위 이내 · 예산 {o.budget}억
+                    {competitionById(clubById(o.clubId).league).name} · {fired ? '새 감독으로 부임' : '이적 제안'} · 목표 {o.targetRank}위 이내 · 예산 {o.budget}억
                   </div>
                 </div>
                 <span className="radio" />

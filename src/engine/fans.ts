@@ -1,4 +1,6 @@
+import { clubById } from '../data/clubs'
 import { addTrust } from './helpers'
+import { economyScale } from './leagues'
 import { planMult } from './reinforce'
 import { clamp } from './squad'
 import type { FanState, GameState, MonthPlan } from './types'
@@ -54,5 +56,5 @@ export function updateFan(s: GameState, m: MonthStats, plan: MonthPlan | null): 
   // 지지도는 구단 재정과 구단주 신뢰에도 영향을 준다
   addTrust(s, (f.support - 50) * 0.03)
   const club = s.clubs[s.userClubId as string]
-  club.budget = round1(club.budget + (f.support - 50) * 0.06)
+  club.budget = round1(club.budget + (f.support - 50) * 0.06 * economyScale(clubById(club.id).strength))
 }

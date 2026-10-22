@@ -3,33 +3,33 @@ import { josa } from './josa'
 import { createRng, type Rng } from './rng'
 import {
   evaluateSeason,
-  makeOffers,
   newClubSims,
   PHILOSOPHIES,
   runOffseason,
-  strengthRanking,
-  targetRankFor,
-  budgetFor,
+  startOffers,
+  targetFor,
 } from './career'
+import { clRunNext, setupCl, userInCl } from './champions'
 import { expireEvents, resolveEvent, rollEvents } from './events'
 import { addTrust, newId, pushFeed, pushTimeline, userClub } from './helpers'
 import { generateMonthMedia } from './media'
 import { INITIAL_FAN, updateFan } from './fans'
-import { applyPlan, planCost } from './reinforce'
+import { budgetFor, calOf, CL_MONTH_TOKENS, economyScale, isEuropeLeagueId } from './leagues'
+import { applyPlan, planCost, planScale } from './reinforce'
 import {
-  afterMatchMemory,
   computeStandings,
-  generateSchedule,
-  MONTH_LABEL,
-  MONTH_ROUNDS,
-  ROUNDS,
-  simulateRound,
+  leagueClubIds,
+  leagueTable,
+  scheduleFor,
+  simulateFixtures,
+  splitFixtures,
+  splitGroups,
+  userLeagueId,
 } from './season'
 import { randomName, FORMATIONS, wageBill, clamp } from './squad'
 import type {
   Abilities,
   Coach,
-  Difficulty,
   EventOutcome,
   GameState,
   MatchResult,
@@ -38,7 +38,7 @@ import type {
   Tactics,
 } from './types'
 
-export const SAVE_VERSION = 3
+export const SAVE_VERSION = 4
 
 export const DEFAULT_TACTICS: Tactics = { philosophy: 'possession', formation: '4-4-2', pressing: 'mid', line: 'mid' }
 
@@ -98,7 +98,6 @@ export function emptyState(seed: number): GameState {
   const s: GameState = {
     version: SAVE_VERSION,
     rng: seed >>> 0,
-    difficulty: 'normal',
     phase: 'create',
     manager: null,
     userClubId: null,
@@ -107,8 +106,15 @@ export function emptyState(seed: number): GameState {
     coachCandidates: [],
     season: 1,
     round: 0,
+    month: 0,
     clubs: {},
     fixtures: [],
+    split: null,
+    lastFinal: {},
+    cl: null,
+    clHistory: [],
+    promo: null,
+    clTitles: 0,
     results: [],
     tactics: { ...DEFAULT_TACTICS },
     tacticMemory: { streak: 0, lastKey: null, familiarity: 0, lastPhilosophy: null },
@@ -134,7 +140,7 @@ export function emptyState(seed: number): GameState {
   }
   const rng = createRng(seed)
   newClubSims(s, rng)
-  s.fixtures = generateSchedule(rng, Object.keys(s.clubs))
+  setupCl(s, rng)
   s.rng = rng.state()
   return s
 }
@@ -156,9 +162,9 @@ export function act<T = void>(state: GameState, fn: (draft: GameState, rng: Rng)
 
 export function createManager(
   state: GameState,
-  input: { name: string; nationality: string; style: string; difficulty: Difficulty },
+  input: { name: string; nationality: string; style: string },
 ): GameState {
-  return act(state, (s, rng) => {
+  return act(state, (s) => {
     const style = MANAGER_STYLES.find((m) => m.id === input.style) ?? MANAGER_STYLES[0]
     s.manager = {
       name: input.name.trim() || '무명',
@@ -168,8 +174,7 @@ export function createManager(
       abilities: { ...style.abilities },
       reputation: START_REPUTATION,
     }
-    s.difficulty = input.difficulty
-    s.offers = makeOffers(s, rng, 3)
+    s.offers = startOffers(s)
     s.phase = 'offers'
   })[0]
 }
@@ -187,19 +192,26 @@ export function makeCoachCandidates(s: GameState, rng: Rng): Coach[] {
 export function chooseOffer(state: GameState, clubId: string): GameState {
   return act(state, (s, rng) => {
     const offer = s.offers.find((o) => o.clubId === clubId)
-    if (!offer) throw new Error('제안을 찾을 수 없어요')
-    joinClub(s, offer.clubId, offer.targetRank, offer.budget)
+    if (!offer) throw new Error('구단을 찾을 수 없어요')
+    joinClub(s, rng, offer.clubId)
     s.coachCandidates = makeCoachCandidates(s, rng)
     s.phase = 'coach'
   })[0]
 }
 
-function joinClub(s: GameState, clubId: string, targetRank: number, budget: number) {
+function joinClub(s: GameState, rng: Rng, clubId: string) {
   s.userClubId = clubId
-  s.targetRank = targetRank
   const club = s.clubs[clubId]
+  s.targetRank = targetFor(s, clubId)
+  const budget = budgetFor(clubById(clubId).strength)
   club.budget = budget
   s.seasonStartBudget = budget
+  // 소속 리그에 맞는 일정으로 새 시즌을 시작한다
+  s.round = 0
+  s.month = 0
+  s.split = null
+  s.results = []
+  s.fixtures = scheduleFor(rng, club.league, leagueClubIds(s, club.league))
   s.ownerTrust = 55
   const style = MANAGER_STYLES.find((m) => m.id === s.manager?.style)
   s.tactics = style ? { ...style.tactics } : { ...DEFAULT_TACTICS, philosophy: club.philosophy, formation: club.formation }
@@ -254,7 +266,7 @@ export function setTactics(state: GameState, patch: Partial<Tactics>): GameState
 /** 보강 계획을 정하거나(null이면 취소) 돌려받은 오류 문구를 보여준다 */
 export function setMonthPlan(state: GameState, plan: MonthPlan | null): [GameState, string | null] {
   return act(state, (s) => {
-    if (plan && planCost(plan) > userClub(s).budget) return '예산이 부족해요'
+    if (plan && planCost(plan, planScale(s)) > userClub(s).budget) return '예산이 부족해요'
     s.monthPlan = plan
     return null
   })
@@ -262,28 +274,49 @@ export function setMonthPlan(state: GameState, plan: MonthPlan | null): [GameSta
 
 /* ───────── 한 달 진행 ───────── */
 
-/** 한 라운드를 진행하고 내 경기 결과를 돌려준다 (기사·이벤트는 달이 끝난 뒤 한꺼번에) */
-function stepRound(s: GameState, rng: Rng): MatchResult {
-  const club = userClub(s)
+/** 내 경기 하나가 끝난 뒤의 신뢰·재정 반영 */
+function afterUserMatch(s: GameState, r: MatchResult, leagueRound: boolean): void {
   const uid = s.userClubId as string
-  const out = simulateRound(s, rng)
-  s.results.push(...out.results)
-  s.round += 1
-  s.tacticMemory = afterMatchMemory(out.userMemory)
-
-  const mine = out.results.find((r) => r.home === uid || r.away === uid) as MatchResult
-  const gf = mine.home === uid ? mine.hg : mine.ag
-  const ga = mine.home === uid ? mine.ag : mine.hg
-
-  club.budget = Math.round((club.budget + 1.5 + (gf > ga ? 0.5 : 0) - wageBill(club.squad)) * 10) / 10
-  if (s.coach?.specialty === 'fitness') {
-    for (const p of club.squad) p.condition = clamp(p.condition + Math.round(s.coach.rating * 0.4), 20, 100)
+  const club = userClub(s)
+  const scale = economyScale(clubById(uid).strength)
+  const gf = r.home === uid ? r.hg : r.ag
+  const ga = r.home === uid ? r.ag : r.hg
+  if (leagueRound) {
+    club.budget = Math.round((club.budget + scale * (1.5 + (gf > ga ? 0.5 : 0)) - wageBill(club.squad, clubById(uid).strength)) * 10) / 10
+    if (s.coach?.specialty === 'fitness') {
+      for (const p of club.squad) p.condition = clamp(p.condition + Math.round(s.coach.rating * 0.4), 20, 100)
+    }
+  } else {
+    club.budget = Math.round((club.budget + scale * (r.home === uid ? 1.2 : 0.4)) * 10) / 10
   }
-  const standings = computeStandings(s.results, Object.keys(s.clubs))
-  const rank = standings.findIndex((x) => x.clubId === uid) + 1
   addTrust(s, gf > ga ? 1 : gf < ga ? -1 : 0)
+}
+
+/** 내 리그의 다음 한 라운드를 진행하고 내 경기 결과를 돌려준다 */
+function stepLeagueRound(s: GameState, rng: Rng): MatchResult {
+  const uid = s.userClubId as string
+  const league = userLeagueId(s)
+  const cal = calOf(league)
+  const results = simulateFixtures(s, rng, s.fixtures[s.round], { comp: league, round: s.round + 1 })
+  s.results.push(...results)
+  s.round += 1
+  const mine = results.find((r) => r.home === uid || r.away === uid) as MatchResult
+  afterUserMatch(s, mine, true)
+
+  // K리그1: 33라운드가 끝나면 상위 6 / 하위 6으로 나눠 5라운드를 더 치른다
+  if (cal.split && s.round === cal.baseRounds && !s.split) {
+    const t = computeStandings(
+      s.results.filter((r) => r.comp === league),
+      leagueClubIds(s, league),
+    )
+    s.split = splitGroups(t)
+    s.fixtures.push(...splitFixtures(rng, s.split))
+  }
+
+  const table = leagueTable(s)
+  const rank = table.findIndex((x) => x.clubId === uid) + 1
   addTrust(s, rank <= s.targetRank ? 0.3 : -0.3)
-  if (s.round >= 9 && rank >= 9) s.wasInDanger = true
+  if (s.round >= Math.floor(cal.rounds / 2) && rank >= table.length - 1) s.wasInDanger = true
   return mine
 }
 
@@ -294,15 +327,23 @@ export interface MonthOutcome {
   seasonOver: boolean
 }
 
-/** 한 달(3라운드)을 진행한다: 보강 계획 적용 → 경기 → 지지도 갱신 → 기사·커뮤니티 → 이벤트 */
+/** 이번 달 일정: 리그 라운드 수와, 내가 챔피언스리그에 있다면 그 달 CL 경기 수 */
+export function monthSchedule(s: GameState): { leagueRounds: number; clTokens: number } {
+  const cal = calOf(userLeagueId(s))
+  const clTokens = userInCl(s) && isEuropeLeagueId(userLeagueId(s)) ? (CL_MONTH_TOKENS[s.month] ?? []).length : 0
+  return { leagueRounds: cal.monthRounds[s.month] ?? 0, clTokens }
+}
+
+/** 한 달을 진행한다: 보강 계획 적용 → 경기(리그·챔피언스리그) → 지지도 → 기사·커뮤니티 → 이벤트 */
 export function playMonth(state: GameState): [GameState, MonthOutcome] {
   return act(state, (s, rng) => {
-    if (s.phase !== 'play' || s.round >= ROUNDS) throw new Error('지금은 진행할 수 없어요')
+    const league = userLeagueId(s)
+    const cal = calOf(league)
+    if (s.phase !== 'play' || s.month >= cal.months.length) throw new Error('지금은 진행할 수 없어요')
     const club = userClub(s)
     const uid = s.userClubId as string
-    const month = Math.floor(s.round / MONTH_ROUNDS) + 1
-    const ids = Object.keys(s.clubs)
-    const rankBefore = s.round === 0 ? 0 : computeStandings(s.results, ids).findIndex((x) => x.clubId === uid) + 1
+    const label = cal.months[s.month]
+    const rankBefore = s.round === 0 ? 0 : leagueTable(s).findIndex((x) => x.clubId === uid) + 1
     const fanBefore = { ...s.fan }
     const trustBefore = s.ownerTrust
     const injuredBefore = new Set(club.squad.filter((p) => p.injuredRounds > 0).map((p) => p.id))
@@ -313,11 +354,22 @@ export function playMonth(state: GameState): [GameState, MonthOutcome] {
     s.monthPlan = null
 
     const mine: MatchResult[] = []
-    while (mine.length < MONTH_ROUNDS && s.round < ROUNDS) mine.push(stepRound(s, rng))
+    const { leagueRounds, clTokens } = monthSchedule(s)
+    for (let i = 0; i < Math.max(leagueRounds, clTokens); i++) {
+      if (i < leagueRounds) mine.push(stepLeagueRound(s, rng))
+      if (i < clTokens) {
+        for (const r of clRunNext(s, rng)) {
+          s.results.push(r)
+          mine.push(r)
+          afterUserMatch(s, r, false)
+        }
+      }
+    }
+    s.month += 1
     s.fitnessBoost = 0
 
-    const standings = computeStandings(s.results, ids)
-    const rankAfter = standings.findIndex((x) => x.clubId === uid) + 1
+    const table = leagueTable(s)
+    const rankAfter = table.findIndex((x) => x.clubId === uid) + 1
     let w = 0
     let d = 0
     let l = 0
@@ -337,7 +389,8 @@ export function playMonth(state: GameState): [GameState, MonthOutcome] {
 
     const report: MonthReport = {
       season: s.season,
-      month,
+      month: s.month - 1,
+      label,
       results: mine,
       w,
       d,
@@ -353,20 +406,20 @@ export function playMonth(state: GameState): [GameState, MonthOutcome] {
       newInjuries: club.squad.filter((p) => p.injuredRounds > 0 && !injuredBefore.has(p.id)).length,
       highlights: [],
     }
-    report.highlights = generateMonthMedia(s, rng, report, standings, plan, !!applied?.applied)
+    report.highlights = generateMonthMedia(s, rng, report, table, plan, !!applied?.applied)
     s.monthReport = report
-    pushTimeline(s, 'result', `${MONTH_LABEL[month - 1]} ${w}승 ${d}무 ${l}패 · ${rankAfter}위 · 지지도 ${Math.round(s.fan.support)}%`)
+    pushTimeline(s, 'result', `${label} ${w}승 ${d}무 ${l}패 · ${rankAfter}위 · 지지도 ${Math.round(s.fan.support)}%`)
 
     const expired = expireEvents(s, rng)
     const fresh = rollEvents(s, rng, {
       injuredBefore,
-      summary: `${MONTH_LABEL[month - 1]} ${w}승 ${d}무 ${l}패를 마친 직후, 기자들이 감독 앞으로 몰려들었어요.`,
+      summary: `${label} ${w}승 ${d}무 ${l}패를 마친 직후, 기자들이 감독 앞으로 몰려들었어요.`,
       userRank: rankAfter,
       recentNoWin: w === 0 || s.fan.support < 30,
     })
     s.events.push(...fresh)
 
-    const seasonOver = s.round >= ROUNDS
+    const seasonOver = s.month >= cal.months.length
     if (seasonOver) evaluateSeason(s, rng)
     return { report, newEvents: fresh.length, expired, seasonOver }
   })
@@ -393,7 +446,7 @@ export function finishSeason(state: GameState, clubId: string | null): GameState
     const lines = runOffseason(s, rng)
     if (offer) {
       const nextClub = clubById(offer.clubId)
-      joinClub(s, offer.clubId, targetRankFor(strengthRanking(s).indexOf(offer.clubId) + 1), budgetFor(nextClub.strength))
+      joinClub(s, rng, offer.clubId)
       pushTimeline(s, 'career', `${prevClub.short} → ${nextClub.name} 감독으로 이동`)
       lines.unshift(`${nextClub.name}의 새 감독으로 부임했어요`)
     } else {

@@ -120,8 +120,8 @@ export async function renderShareCard(state: GameState): Promise<string> {
   // 큰 숫자 3개
   const stats: [string, string, string][] = [
     ['시즌', String(t.seasons), '#191F28'],
-    ['우승', String(t.titles), '#D9A441'],
-    ['최고 순위', t.bestRank ? `${t.bestRank}위` : '-', '#3B82F6'],
+    ['리그 우승', String(t.titles), '#D9A441'],
+    ['챔스 우승', String(state.clTitles), '#D9A441'],
   ]
   stats.forEach(([label, value, color], i) => {
     const x = 120 + i * 300

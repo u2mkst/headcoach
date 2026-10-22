@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { clubById } from '../data/clubs'
+import { clubById, competitionById } from '../data/clubs'
 import { OUTCOME_LABEL } from '../engine/career'
 import { retireManager } from '../engine/game'
-import type { Difficulty, GameState } from '../engine/types'
+import type { GameState } from '../engine/types'
 import { Bar, Crest, Icon, Segmented, Sheet } from './components'
 import { ABILITY_INFO } from './Onboarding'
 import { careerTotals, renderShareCard } from './shareCard'
@@ -41,6 +41,24 @@ export function RecordsTab({
 
       {sub === 'honors' && (
         <>
+          <section className="card stack" style={{ background: 'var(--gold-soft)' }} aria-label="최종 목표">
+            <div className="row">
+              <Icon name="trophy" className="trophy" />
+              <div className="grow">
+                <div className="label" style={{ color: '#a9791f' }}>
+                  최종 목표
+                </div>
+                <div className="card-title" style={{ color: '#a9791f' }}>
+                  UEFA 챔피언스리그 우승
+                </div>
+              </div>
+              <b style={{ color: '#a9791f' }}>{state.clTitles}회</b>
+            </div>
+            <p className="label" style={{ color: '#a9791f' }}>
+              지금 {clubById(state.userClubId as string).short} · {competitionById(state.clubs[state.userClubId as string].league).name}
+              {mgr ? ` · 명성 ${Math.round(mgr.reputation)}` : ''}. 성적을 쌓아 더 큰 무대의 제안을 받아 보세요.
+            </p>
+          </section>
           {mgr && (
             <section className="card stack">
               <div className="row between">
@@ -93,7 +111,10 @@ export function RecordsTab({
                     {s.season}시즌 · {clubById(s.clubId).short}
                   </div>
                   <div className="label">
-                    {s.rank}위 · {s.w}승 {s.d}무 {s.l}패 · 승점 {s.points}
+                    {competitionById(s.league).short} {s.rank}위 · {s.w}승 {s.d}무 {s.l}패 · 승점 {s.points}
+                    {s.moved === 'promoted' && ' · 승격'}
+                    {s.moved === 'relegated' && ' · 강등'}
+                    {s.cl && ` · 챔피언스리그 ${s.cl}`}
                   </div>
                 </div>
                 <span className={`tag ${s.outcome === 'champion' ? 'gold' : s.outcome === 'failed' || s.outcome === 'fell_short' ? '' : 'accent'}`}>
@@ -183,23 +204,6 @@ export function RecordsTab({
 
       {sub === 'settings' && (
         <>
-          <section className="card stack">
-            <h2 className="card-title">난이도</h2>
-            <div className="chips">
-              {(
-                [
-                  ['easy', '쉬움'],
-                  ['normal', '보통'],
-                  ['hard', '어려움'],
-                ] as [Difficulty, string][]
-              ).map(([id, label]) => (
-                <button key={id} className="chip" aria-pressed={state.difficulty === id} onClick={() => onChange({ ...state, difficulty: id })}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            <span className="label">바꾸면 다음 경기부터 적용돼요. 쉬움은 내 팀 전력이 조금 오르고, 어려움은 상대 전력이 조금 올라요.</span>
-          </section>
           <section className="card stack">
             <h2 className="card-title">저장</h2>
             <p className="label">진행 상황은 이 기기에 자동으로 저장돼요.</p>

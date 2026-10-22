@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { MONTH_LABEL, MONTH_ROUNDS } from '../engine/season'
 import type { FeedItem, GameState } from '../engine/types'
 import { Bar } from './components'
 import { Delta } from './Home'
@@ -54,7 +53,7 @@ export function ReactionTab({ state }: { state: GameState }) {
               <span>{f.source}</span>
               <span>·</span>
               <span>
-                {f.season}시즌 {MONTH_LABEL[Math.max(0, Math.ceil(f.round / MONTH_ROUNDS) - 1)]}
+                {f.season}시즌 {f.round}R
               </span>
               <span className={`tag ${f.kind === 'press' ? 'accent' : ''}`} style={{ height: 20, marginLeft: 'auto' }}>
                 {f.kind === 'fan' ? f.topic : FILTER_LABEL[f.kind]}

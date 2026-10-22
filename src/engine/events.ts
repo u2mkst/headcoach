@@ -218,7 +218,7 @@ export function rollEvents(s: GameState, rng: Rng, ctx: RollContext): PendingEve
     const stars = [...club.squad].sort((a, b) => b.ovr - a.ovr).slice(0, 8).filter((p) => p.age <= 31)
     if (stars.length) {
       const p = rng.pick(stars)
-      const others = Object.keys(s.clubs).filter((id) => id !== s.userClubId)
+      const others = Object.values(s.clubs).filter((c) => c.league === club.league && c.id !== s.userClubId).map((c) => c.id)
       const bidder = clubById(rng.pick(others))
       const price = Math.round(playerValue(p) * rng.range(0.95, 1.3) * 10) / 10
       add('offer', { playerId: p.id, no: p.no, pos: p.pos, ovr: p.ovr, club: bidder.name, price })
@@ -235,7 +235,7 @@ export function rollEvents(s: GameState, rng: Rng, ctx: RollContext): PendingEve
 
   // 7) 라이벌 도발
   if (roll(rng, 0.06) && !has(s, 'rival')) {
-    const others = Object.keys(s.clubs).filter((id) => id !== s.userClubId)
+    const others = Object.values(s.clubs).filter((c) => c.league === club.league && c.id !== s.userClubId).map((c) => c.id)
     add('rival', { rivalName: clubById(rng.pick(others)).short })
   }
 

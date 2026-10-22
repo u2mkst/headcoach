@@ -1,5 +1,7 @@
 import type { Rng } from './rng'
+import { clubById } from '../data/clubs'
 import { addTrust, newId, userClub } from './helpers'
+import { economyScale } from './leagues'
 import { assignNumber, clamp, makePlayer, playerLabel } from './squad'
 import type { GameState, MonthPlan, Position, SpendFocus, SpendLevel } from './types'
 
@@ -42,9 +44,13 @@ export const LINE_POS: Partial<Record<SpendFocus, Position>> = {
 /** 라인 능력치를 잴 때 보는 주전 수 (기본 포메이션 기준) */
 export const LINE_SLOTS: Record<Position, number> = { GK: 1, DF: 4, MF: 4, FW: 2 }
 
-/** 예산 변화량: 쓰면 음수, 아끼면 양수 */
-export const planDelta = (p: MonthPlan): number => (p.focus === 'save' ? SAVED[p.level] : -SPEND[p.level])
-export const planCost = (p: MonthPlan): number => Math.max(0, -planDelta(p))
+/** 내 구단 규모에 맞는 금액 배율 */
+export const planScale = (s: GameState): number => economyScale(clubById(s.userClubId as string).strength)
+
+/** 예산 변화량: 쓰면 음수, 아끼면 양수 (구단 규모 배율 적용) */
+export const planDelta = (p: MonthPlan, scale = 1): number =>
+  Math.round((p.focus === 'save' ? SAVED[p.level] : -SPEND[p.level]) * scale)
+export const planCost = (p: MonthPlan, scale = 1): number => Math.max(0, -planDelta(p, scale))
 export const planMult = (level: SpendLevel): number => MULT[level]
 
 export const SQUAD_CAP = 26
@@ -52,14 +58,16 @@ export const SQUAD_CAP = 26
 /** 달이 시작될 때 보강 계획을 실행하고 결과 한 줄을 돌려준다 */
 export function applyPlan(s: GameState, rng: Rng, plan: MonthPlan): { line: string; applied: boolean } {
   const club = userClub(s)
-  const cost = planCost(plan)
+  const scale = planScale(s)
+  const cost = planCost(plan, scale)
   if (cost > club.budget) return { line: '예산이 부족해 이번 달 보강은 건너뛰었어요', applied: false }
   const round1 = (n: number) => Math.round(n * 10) / 10
 
   if (plan.focus === 'save') {
-    club.budget = round1(club.budget + SAVED[plan.level])
+    const saved = planDelta(plan, scale)
+    club.budget = round1(club.budget + saved)
     addTrust(s, 0.5 * MULT[plan.level])
-    return { line: `${SAVED[plan.level]}억을 아꼈어요`, applied: true }
+    return { line: `${saved}억을 아꼈어요`, applied: true }
   }
 
   club.budget = round1(club.budget - cost)
@@ -79,7 +87,9 @@ export function applyPlan(s: GameState, rng: Rng, plan: MonthPlan): { line: stri
     .sort((a, b) => b.ovr - a.ovr)
     .slice(0, LINE_SLOTS[pos])
   const avg = starters.reduce((a, p) => a + p.ovr, 0) / Math.max(1, starters.length)
-  const ovr = clamp(Math.round(avg + LINE_BONUS[plan.level] + rng.normal(0, 1.5)), 45, 90)
+  // 구단의 격(전력)을 넘어서는 선수는 영입하기 어렵다
+  const ceiling = clubById(club.id).strength + 1
+  const ovr = clamp(Math.round(Math.min(avg + LINE_BONUS[plan.level], ceiling) + rng.normal(0, 1.5)), 40, 92)
   const p = makePlayer(rng, 0, pos, ovr, { age: rng.int(21, 28) })
   p.id = newId(s, 'p')
   p.ovr = ovr

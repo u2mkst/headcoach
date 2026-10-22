@@ -44,8 +44,8 @@ export function effectiveRatings(me: TeamSide, opp: TeamSide): LineRatings {
 
   // 철학 상성: 앞이 뒤에 강하다
   let m = me.mult
-  if (PHILOSOPHY_BEATS[me.tactics.philosophy] === opp.tactics.philosophy) m *= 1.04
-  else if (PHILOSOPHY_BEATS[opp.tactics.philosophy] === me.tactics.philosophy) m *= 0.96
+  if (PHILOSOPHY_BEATS[me.tactics.philosophy] === opp.tactics.philosophy) m *= 1.02
+  else if (PHILOSOPHY_BEATS[opp.tactics.philosophy] === me.tactics.philosophy) m *= 0.98
 
   return { att: att * m, mid: mid * m, def: def * m }
 }
@@ -68,7 +68,7 @@ function pickScorer(rng: Rng, lineup: Player[]): Player {
 }
 
 export interface MatchSim {
-  result: Omit<MatchResult, 'season' | 'round'>
+  result: Omit<MatchResult, 'season' | 'round' | 'comp' | 'stage' | 'pens'>
   xgHome: number
   xgAway: number
 }
@@ -105,4 +105,11 @@ export function simulateMatch(rng: Rng, home: TeamSide, away: TeamSide): MatchSi
     xgHome,
     xgAway,
   }
+}
+
+/** 득점자·기록 없이 스코어만 빠르게 뽑는다 (내가 보지 않는 리그·대회용) */
+export function quickResult(rng: Rng, home: TeamSide, away: TeamSide): { hg: number; ag: number } {
+  const rh = effectiveRatings(home, away)
+  const ra = effectiveRatings(away, home)
+  return { hg: rng.poisson(expectedGoals(rh, ra, true)), ag: rng.poisson(expectedGoals(ra, rh, false)) }
 }

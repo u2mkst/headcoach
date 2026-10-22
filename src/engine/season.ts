@@ -12,34 +12,59 @@ import type {
   Tactics,
 } from './types'
 
-export const ROUNDS = 18
-/** 한 달 = 3라운드, 한 시즌 = 6개월 */
-export const MONTH_ROUNDS = 3
-export const MONTH_LABEL = ['3월', '4월', '5월', '6월', '7월', '8월']
 export const EXPOSURE_AFTER = 5
 
-/** 원형 배치 방식 풀리그: 전반 9라운드 + 홈/원정을 뒤집은 후반 9라운드 */
-export function generateSchedule(rng: Rng, clubIds: string[]): Fixture[][] {
-  const ids = rng.shuffle(clubIds)
+/** 원형 배치 방식으로 만든 한 바퀴 라운드(홈/원정 미정) */
+export function circleRounds(ids: string[]): [string, string][][] {
   const n = ids.length
-  const half: Fixture[][] = []
   const arr = [...ids]
+  const rounds: [string, string][][] = []
   for (let r = 0; r < n - 1; r++) {
-    const round: Fixture[] = []
-    for (let i = 0; i < n / 2; i++) {
-      const a = arr[i]
-      const b = arr[n - 1 - i]
-      // 홈/원정이 한쪽에 쏠리지 않도록 교대로 배치
-      round.push((r + i) % 2 === 0 ? { home: a, away: b } : { home: b, away: a })
-    }
-    half.push(round)
+    const round: [string, string][] = []
+    for (let i = 0; i < n / 2; i++) round.push([arr[i], arr[n - 1 - i]])
+    rounds.push(round)
     arr.splice(1, 0, arr.pop() as string)
   }
+  return rounds
+}
+
+/** 한 바퀴 풀리그: 홈/원정이 한쪽에 쏠리지 않도록 교대로 배치 */
+export function halfRobin(rng: Rng, clubIds: string[]): Fixture[][] {
+  return circleRounds(rng.shuffle(clubIds)).map((round, r) =>
+    round.map(([a, b], i) => ((r + i) % 2 === 0 ? { home: a, away: b } : { home: b, away: a })),
+  )
+}
+
+/** 더블 라운드 로빈: 전반 + 홈/원정을 뒤집은 후반 */
+export function generateSchedule(rng: Rng, clubIds: string[]): Fixture[][] {
+  const half = halfRobin(rng, clubIds)
   const second = half.map((round) => round.map((f) => ({ home: f.away, away: f.home })))
   return [...half, ...second]
 }
 
-export function computeStandings(results: MatchResult[], clubIds: string[]): Standing[] {
+/** 3바퀴: K리그처럼 팀 수에 비해 경기가 많을 때. 세 번째 바퀴는 라운드 순서를 섞고 홈/원정을 무작위로 정한다 */
+export function tripleSchedule(rng: Rng, clubIds: string[]): Fixture[][] {
+  const base = generateSchedule(rng, clubIds)
+  const third = rng
+    .shuffle(base.slice(0, clubIds.length - 1))
+    .map((round) => round.map((f) => (rng.chance(0.5) ? f : { home: f.away, away: f.home })))
+  return [...base, ...third]
+}
+
+/** 리그 종류에 맞는 일정을 만든다 (K1은 스플릿 전 33라운드까지) */
+export function scheduleFor(rng: Rng, leagueId: string, clubIds: string[]): Fixture[][] {
+  return leagueId === 'k1' || leagueId === 'k2' ? tripleSchedule(rng, clubIds) : generateSchedule(rng, clubIds)
+}
+
+/** 순위표 계산에 필요한 최소 정보 */
+export interface ResultLike {
+  home: string
+  away: string
+  hg: number
+  ag: number
+}
+
+export function computeStandings(results: ResultLike[], clubIds: string[]): Standing[] {
   const table = new Map<string, Standing>(
     clubIds.map((id) => [id, { clubId: id, p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 }]),
   )
@@ -77,6 +102,44 @@ export function computeStandings(results: MatchResult[], clubIds: string[]): Sta
   )
 }
 
+/** K1 스플릿 그룹: 33라운드 순위로 상위 6 / 하위 6 */
+export function splitGroups(table: Standing[]): { top: string[]; bottom: string[] } {
+  const half = Math.floor(table.length / 2)
+  return { top: table.slice(0, half).map((t) => t.clubId), bottom: table.slice(half).map((t) => t.clubId) }
+}
+
+/** 스플릿 이후 각 그룹 안에서 한 바퀴(5라운드). 그룹 일정을 라운드별로 합친다 */
+export function splitFixtures(rng: Rng, g: { top: string[]; bottom: string[] }): Fixture[][] {
+  const a = halfRobin(rng, g.top)
+  const b = halfRobin(rng, g.bottom)
+  return a.map((round, i) => [...round, ...b[i]])
+}
+
+/** 스플릿이 있으면 상위 그룹이 항상 하위 그룹보다 위에 놓인다 */
+export function orderWithSplit(table: Standing[], split: { top: string[]; bottom: string[] } | null): Standing[] {
+  if (!split) return table
+  const top = new Set(split.top)
+  return [...table.filter((t) => top.has(t.clubId)), ...table.filter((t) => !top.has(t.clubId))]
+}
+
+/** 지금 내 구단이 속한 리그 */
+export const userLeagueId = (s: GameState): string => s.clubs[s.userClubId as string]?.league ?? 'k1'
+
+export const leagueClubIds = (s: GameState, leagueId: string): string[] =>
+  Object.values(s.clubs)
+    .filter((c) => c.league === leagueId)
+    .map((c) => c.id)
+
+/** 내 리그의 현재 순위표 (K1은 스플릿 그룹 순서 반영) */
+export function leagueTable(s: GameState): Standing[] {
+  const league = userLeagueId(s)
+  const table = computeStandings(
+    s.results.filter((r) => r.comp === league),
+    leagueClubIds(s, league),
+  )
+  return orderWithSplit(table, s.split)
+}
+
 export const tacticKey = (t: Tactics) => `${t.philosophy}|${t.formation}|${t.pressing}|${t.line}`
 
 /** 이번 경기에 적용할 전술 기억 (경기 전에 계산) */
@@ -92,9 +155,9 @@ export function nextTacticMemory(mem: TacticMemory, t: Tactics): TacticMemory {
   }
 }
 
-export const familiarityBonus = (fam: number) => 0.04 * (fam / 100)
+export const familiarityBonus = (fam: number) => 0.025 * (fam / 100)
 export const exposurePenalty = (streak: number) =>
-  streak >= EXPOSURE_AFTER ? Math.min(0.03, 0.015 * (streak - EXPOSURE_AFTER + 1)) : 0
+  streak >= EXPOSURE_AFTER ? Math.min(0.02, 0.01 * (streak - EXPOSURE_AFTER + 1)) : 0
 
 /** 경기 후 숙련도 상승 */
 export const afterMatchMemory = (mem: TacticMemory): TacticMemory => ({
@@ -105,10 +168,8 @@ export const afterMatchMemory = (mem: TacticMemory): TacticMemory => ({
 export function userMultiplier(state: GameState, mem: TacticMemory): number {
   const mgr = state.manager
   let m = 1 + familiarityBonus(mem.familiarity) - exposurePenalty(mem.streak)
-  if (mgr) m += (mgr.abilities.tactics - 5) * 0.003
-  if (state.coach?.specialty === 'tactics') m += state.coach.rating * 0.0006
-  if (state.difficulty === 'easy') m += 0.015
-  if (state.difficulty === 'hard') m -= 0.015
+  if (mgr) m += (mgr.abilities.tactics - 5) * 0.002
+  if (state.coach?.specialty === 'tactics') m += state.coach.rating * 0.0004
   return m
 }
 
@@ -116,33 +177,38 @@ function aiTactics(club: ClubSim): Tactics {
   return { philosophy: club.philosophy, formation: club.formation, pressing: 'mid', line: 'mid' }
 }
 
-interface RoundOutput {
-  results: MatchResult[]
-  userMemory: TacticMemory
+export interface FixtureMeta {
+  comp: string
+  round: number
+  stage?: string
 }
 
-export function simulateRound(state: GameState, rng: Rng): RoundOutput {
-  const fixtures = state.fixtures[state.round]
+/**
+ * 주어진 경기들을 진행한다. 내 구단 경기가 있으면 내 전술·숙련도를 쓰고, 선수 상태도 갱신한다.
+ * (경기가 많은 리그에서도 같은 함수를 쓴다.)
+ */
+export function simulateFixtures(state: GameState, rng: Rng, fixtures: Fixture[], meta: FixtureMeta): MatchResult[] {
+  const uid = state.userClubId
+  const userPlays = fixtures.some((f) => f.home === uid || f.away === uid)
+  const userMemory = userPlays ? nextTacticMemory(state.tacticMemory, state.tactics) : state.tacticMemory
   const results: MatchResult[] = []
-  const userMemory = nextTacticMemory(state.tacticMemory, state.tactics)
   const lineups = new Map<string, Player[]>()
 
   const sideFor = (clubId: string): TeamSide => {
     const club = state.clubs[clubId]
-    if (clubId === state.userClubId) {
+    if (clubId === uid) {
       const lineup = pickLineup(club.squad, state.tactics.formation)
       lineups.set(clubId, lineup)
       return { clubId, lineup, tactics: state.tactics, mult: userMultiplier(state, userMemory) }
     }
     const lineup = pickLineup(club.squad, club.formation)
     lineups.set(clubId, lineup)
-    const diff = state.difficulty === 'easy' ? 0.985 : state.difficulty === 'hard' ? 1.015 : 1
-    return { clubId, lineup, tactics: aiTactics(club), mult: diff }
+    return { clubId, lineup, tactics: aiTactics(club), mult: 1 }
   }
 
   for (const f of fixtures) {
     const sim = simulateMatch(rng, sideFor(f.home), sideFor(f.away))
-    results.push({ season: state.season, round: state.round + 1, ...sim.result })
+    results.push({ season: state.season, round: meta.round, comp: meta.comp, stage: meta.stage, ...sim.result })
   }
 
   for (const r of results) {
@@ -151,12 +217,13 @@ export function simulateRound(state: GameState, rng: Rng): RoundOutput {
       const lineup = lineups.get(clubId) as Player[]
       const mine = clubId === r.home ? r.hg : r.ag
       const theirs = clubId === r.home ? r.ag : r.hg
-      const pressing = clubId === state.userClubId ? state.tactics.pressing : 'mid'
-      const care = clubId === state.userClubId ? state.fitnessBoost : 0
+      const pressing = clubId === uid ? state.tactics.pressing : 'mid'
+      const care = clubId === uid ? state.fitnessBoost : 0
       applyMatchToSquad(rng, club.squad, lineup, r, mine - theirs, pressing, clubId, care)
     }
   }
-  return { results, userMemory }
+  if (userPlays) state.tacticMemory = afterMatchMemory(userMemory)
+  return results
 }
 
 /** 경기 후 선수 상태 갱신: 출전·득점·컨디션·사기·부상 */

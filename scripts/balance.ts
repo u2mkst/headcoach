@@ -6,7 +6,6 @@ import type { GameState, Philosophy, SpendFocus } from '../src/engine/types'
 import { OUTCOME_LABEL } from '../src/engine/career'
 import { PHILOSOPHY_BEATS } from '../src/engine/squad'
 import { userClub } from '../src/engine/helpers'
-import { MONTH_ROUNDS } from '../src/engine/season'
 import { lineInfos } from '../src/ui/derive'
 
 const GAMES = Number(process.argv[2] ?? 100)
@@ -41,7 +40,7 @@ function weakestFocus(s: GameState): SpendFocus {
 function playSeason(s0: GameState, bot: Bot): GameState {
   let s = s0
   while (s.phase === 'play') {
-    const month = s.round / MONTH_ROUNDS
+    const month = s.month
     if (bot === 'smart' || bot === 'invest') {
       if (userClub(s).budget >= 25) [s] = setMonthPlan(s, { focus: weakestFocus(s), level: 'medium' })
     }
@@ -50,7 +49,7 @@ function playSeason(s0: GameState, bot: Bot): GameState {
       s = setTactics(s, { formation: forms[(month - 1) % forms.length] })
     }
     if (bot === 'active') {
-      const next = s.fixtures[s.round].find((f) => f.home === s.userClubId || f.away === s.userClubId)!
+      const next = s.fixtures[Math.min(s.round, s.fixtures.length - 1)].find((f) => f.home === s.userClubId || f.away === s.userClubId)!
       const oppId = next.home === s.userClubId ? next.away : next.home
       const counter = (Object.keys(PHILOSOPHY_BEATS) as Philosophy[]).find((p) => PHILOSOPHY_BEATS[p] === s.clubs[oppId].philosophy)!
       s = setTactics(s, { philosophy: counter })
