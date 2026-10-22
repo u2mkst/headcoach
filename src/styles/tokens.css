@@ -1,0 +1,24 @@
+/* 디자인 토큰 — 값은 스크린샷 기준 대략치이며 구현 화면과 비교해 조정한다 */
+:root {
+  --bg: #f2f4f6;
+  --surface: #ffffff;
+  --ink: #191f28;
+  --muted: #6b7684;
+  --line: #e5e8eb;
+  --accent: #3b82f6;
+  --gold: #d9a441;
+  --alert: #e5484d;
+
+  --accent-soft: #e8f1ff;
+  --accent-disabled: #b9d3fb;
+  --gold-soft: #fbf3e1;
+  --alert-soft: #fdecec;
+
+  --radius-card: 24px;
+  --radius-control: 16px;
+  --gutter: 16px;
+
+  --font: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --tabbar-h: 64px;
+}

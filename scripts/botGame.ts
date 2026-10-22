@@ -1,0 +1,17 @@
+import { chooseCoach, chooseOffer, createManager, newGame, startSeason } from '../src/engine/game'
+import type { GameState } from '../src/engine/types'
+
+/** 균형 잡힌 능력치의 감독으로 중위권 구단에서 시작하는 게임 */
+export function startedGameFor(seed: number): GameState {
+  let s = newGame(seed)
+  s = createManager(s, {
+    name: '봇',
+    nationality: '대한민국',
+    background: 'coach',
+    abilities: { tactics: 5, leadership: 5, communication: 5, youth: 4, negotiation: 3 },
+    difficulty: 'normal',
+  })
+  s = chooseOffer(s, s.offers[Math.min(1, s.offers.length - 1)].clubId)
+  s = chooseCoach(s, s.coachCandidates[0].id)
+  return startSeason(s)
+}
