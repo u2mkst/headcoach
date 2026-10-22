@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { chooseEvent, dismissReport, playRound, type RoundReport } from '../engine/game'
+import { chooseEvent, dismissReport, playMonth, setMonthPlan, type MonthOutcome } from '../engine/game'
 import type { EventOutcome, GameState } from '../engine/types'
 import { Home } from './Home'
 import { Icon, Toast } from './components'
 import { Onboarding } from './Onboarding'
-import { EventResultScreen, EventScreen, Progress, ResultScreen } from './Overlays'
+import { EventResultScreen, EventScreen, MonthReportScreen, Progress } from './Overlays'
+import { PlanSheet } from './Plan'
 import { ReactionTab } from './Reaction'
 import { RecordsTab, RetiredScreen } from './Records'
 import { SeasonEnd } from './SeasonEnd'
@@ -23,7 +24,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
 ]
 
 type Overlay =
-  | { kind: 'progress'; next: GameState; report: RoundReport }
+  | { kind: 'progress'; next: GameState; outcome: MonthOutcome }
   | { kind: 'result' }
   | { kind: 'event'; uid: string }
   | { kind: 'eventResult'; outcome: EventOutcome }
@@ -35,6 +36,7 @@ export function App() {
   const [splash, setSplash] = useState(!!saved)
   const [tab, setTab] = useState<TabId>('home')
   const [overlay, setOverlay] = useState<Overlay>(null)
+  const [planOpen, setPlanOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   /** 이미 보여줬거나 "나중에"로 미뤄 둔 이벤트는 자동으로 다시 열지 않는다 */
   const seen = useRef(new Set<string>())
@@ -106,8 +108,8 @@ export function App() {
 
   const play = () => {
     try {
-      const [next, report] = playRound(state)
-      setOverlay({ kind: 'progress', next, report })
+      const [next, outcome] = playMonth(state)
+      setOverlay({ kind: 'progress', next, outcome })
     } catch (e) {
       setToast(e instanceof Error ? e.message : '경기를 진행하지 못했어요')
     }
@@ -127,6 +129,7 @@ export function App() {
               onPlay={play}
               onGo={changeTab}
               onOpenEvent={(uid) => setOverlay({ kind: 'event', uid })}
+              onPlan={() => setPlanOpen(true)}
               onDismissReport={() => replace(dismissReport(state))}
             />
           )}
@@ -155,9 +158,10 @@ export function App() {
           }}
         />
       )}
-      {overlay?.kind === 'result' && (
-        <ResultScreen
-          state={state}
+      {overlay?.kind === 'result' && state.monthReport && (
+        <MonthReportScreen
+          report={state.monthReport}
+          clubId={state.userClubId as string}
           onContinue={() => {
             if (state.phase === 'seasonEnd') setOverlay(null)
             else afterEvents(state)
@@ -180,6 +184,22 @@ export function App() {
       )}
       {overlay?.kind === 'event' && !openEventOverlay && <EventGone onClose={() => afterEvents(state)} />}
       {overlay?.kind === 'eventResult' && <EventResultScreen outcome={overlay.outcome} onContinue={() => afterEvents(state)} />}
+
+      {planOpen && (
+        <PlanSheet
+          state={state}
+          onClose={() => setPlanOpen(false)}
+          onSave={(p) => {
+            const [next, err] = setMonthPlan(state, p)
+            if (err) setToast(err)
+            else {
+              replace(next)
+              setToast(p ? '보강 계획을 정했어요' : '보강 계획을 취소했어요')
+            }
+            setPlanOpen(false)
+          }}
+        />
+      )}
 
       {toast && <Toast message={toast} onDone={clearToast} />}
     </div>

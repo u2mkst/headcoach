@@ -1,24 +1,33 @@
 import { clubById, competitionById } from '../data/clubs'
 import { describeEvent } from '../engine/events'
 import { EXPOSURE_AFTER } from '../engine/season'
-import { PHILOSOPHY_LABEL, playerLabel } from '../engine/squad'
+import { LEVEL_LABEL as TACTIC_LEVEL, PHILOSOPHY_LABEL, playerLabel } from '../engine/squad'
 import { userClub } from '../engine/helpers'
 import type { GameState } from '../engine/types'
 import { Bar, Chevron, CompetitionLogo, Crest, FormDots } from './components'
-import { MATCHUP_LABEL, matchupOf, nextFixture, standingsOf, userRank, userResults } from './derive'
+import { currentMonthLabel, MATCHUP_LABEL, matchupOf, monthFixtures, standingsOf, userRank, userResults } from './derive'
+import { planSummary } from './Plan'
 import type { TabId } from './App'
+
+export const Delta = ({ v }: { v: number }) => {
+  const r = Math.round(v)
+  if (r === 0) return <span className="muted">-</span>
+  return r > 0 ? <span className="up">▲{r}</span> : <span className="muted">▼{-r}</span>
+}
 
 export function Home({
   state,
   onPlay,
   onOpenEvent,
   onGo,
+  onPlan,
   onDismissReport,
 }: {
   state: GameState
   onPlay: () => void
   onOpenEvent: (uid: string) => void
   onGo: (tab: TabId) => void
+  onPlan: () => void
   onDismissReport: () => void
 }) {
   const uid = state.userClubId as string
@@ -26,12 +35,15 @@ export function Home({
   const table = standingsOf(state)
   const rank = userRank(state)
   const row = table.find((x) => x.clubId === uid)
-  const next = nextFixture(state)
+  const fixtures = monthFixtures(state)
   const sim = userClub(state)
   const injured = sim.squad.filter((p) => p.injuredRounds > 0)
   const streak = state.tacticMemory.streak
   const trust = Math.round(state.ownerTrust)
-  const oppSim = next ? state.clubs[next.oppId] : null
+  const fan = state.fan
+  const rep = state.monthReport && state.monthReport.season === state.season ? state.monthReport : null
+  const t = state.tactics
+  const monthLabel = currentMonthLabel(state)
 
   const todos: { key: string; label: string; sub: string; onClick: () => void }[] = []
   for (const ev of state.events) {
@@ -42,7 +54,7 @@ export function Home({
     todos.push({
       key: 'exposure',
       label: `같은 전술 ${streak}경기째`,
-      sub: streak >= EXPOSURE_AFTER ? '상대가 대응하기 시작했어요' : '다음 경기부터 상대가 대응해요',
+      sub: streak >= EXPOSURE_AFTER ? '상대가 대응하기 시작했어요' : '이대로면 곧 상대가 대응해요',
       onClick: () => onGo('squad'),
     })
   }
@@ -57,7 +69,14 @@ export function Home({
 
   return (
     <div className="screen">
-      <h1 className="screen-title">홈</h1>
+      <div className="row between" style={{ padding: '4px 4px 0' }}>
+        <h1 className="screen-title" style={{ padding: 0 }}>
+          홈
+        </h1>
+        <span className="tag accent">
+          {state.season}시즌 · {monthLabel}
+        </span>
+      </div>
 
       {state.offseasonReport && (
         <section className="card stack" aria-label="오프시즌 소식">
@@ -84,7 +103,7 @@ export function Home({
             <div className="card-title ellipsis">{club.name}</div>
             <div className="label row" style={{ gap: 4 }}>
               <CompetitionLogo src={competitionById(club.league).logo} />
-              {competitionById(club.league).name} · {state.season}시즌 · {state.manager?.name} 감독
+              {competitionById(club.league).name} · {state.manager?.name} 감독
             </div>
           </div>
         </div>
@@ -111,9 +130,45 @@ export function Home({
           </div>
           <div className="row between">
             <span className="label">구단주 신뢰</span>
-            <b className="tnum">{trust}%</b>
+            <b className="tnum">
+              {trust}% {rep && <Delta v={rep.trustDelta} />}
+            </b>
           </div>
           <Bar value={trust} />
+        </div>
+      </section>
+
+      <section className="card stack" aria-label="팬 지지도">
+        <div className="row between">
+          <h2 className="card-title">팬 지지도</h2>
+          <button className="btn small ghost" onClick={() => onGo('reaction')}>
+            커뮤니티 보기
+          </button>
+        </div>
+        <div className="row between" style={{ alignItems: 'flex-end' }}>
+          <span className="big tnum">{Math.round(fan.support)}%</span>
+          {rep && (
+            <b className="tnum">
+              지난달 <Delta v={rep.fanAfter.support - rep.fanBefore.support} />
+            </b>
+          )}
+        </div>
+        <Bar value={fan.support} />
+        <div className="row" style={{ gap: 16 }}>
+          <div className="grow stack" style={{ gap: 4 }}>
+            <div className="row between">
+              <span className="label">성적 만족</span>
+              <b className="tnum">{Math.round(fan.results)}%</b>
+            </div>
+            <Bar value={fan.results} thin />
+          </div>
+          <div className="grow stack" style={{ gap: 4 }}>
+            <div className="row between">
+              <span className="label">스타일 만족</span>
+              <b className="tnum">{Math.round(fan.style)}%</b>
+            </div>
+            <Bar value={fan.style} thin />
+          </div>
         </div>
       </section>
 
@@ -122,41 +177,70 @@ export function Home({
           확인할 일
         </h2>
         {todos.length === 0 && <p className="empty">지금은 확인할 일이 없어요</p>}
-        {todos.map((t) => (
-          <button key={t.key} className="item" onClick={t.onClick}>
+        {todos.map((x) => (
+          <button key={x.key} className="item" onClick={x.onClick}>
             <span className="dot" aria-label="새 알림" />
             <div className="grow">
-              <div style={{ fontWeight: 600 }}>{t.label}</div>
-              <div className="label ellipsis">{t.sub}</div>
+              <div style={{ fontWeight: 600 }}>{x.label}</div>
+              <div className="label ellipsis">{x.sub}</div>
             </div>
             <Chevron />
           </button>
         ))}
       </section>
 
-      {next && oppSim && (
-        <section className="card stack" aria-label="다음 경기">
-          <div className="row between">
-            <h2 className="card-title">다음 경기</h2>
-            <span className="tag">
-              {next.round}/18라운드 · {next.home ? '홈' : '원정'}
-            </span>
-          </div>
-          <div className="row">
-            <Crest clubId={next.oppId} size={48} />
-            <div className="grow">
-              <div style={{ fontWeight: 700, fontSize: 17 }}>{clubById(next.oppId).name}</div>
-              <div className="chips" style={{ marginTop: 4 }}>
-                <span className="tag">{PHILOSOPHY_LABEL[oppSim.philosophy]} 성향</span>
-                <span className="tag accent">{MATCHUP_LABEL[matchupOf(state.tactics.philosophy, oppSim.philosophy)]}</span>
-              </div>
+      <section className="card flush" aria-label="이번 달 결정">
+        <h2 className="card-title" style={{ padding: '12px 20px 4px' }}>
+          {monthLabel} 결정
+        </h2>
+        <button className="item" onClick={() => onGo('squad')}>
+          <div className="grow">
+            <div className="label">전술</div>
+            <div style={{ fontWeight: 600 }}>
+              {PHILOSOPHY_LABEL[t.philosophy]} · {t.formation} · 압박 {TACTIC_LEVEL[t.pressing]} · 라인 {TACTIC_LEVEL[t.line]}
             </div>
           </div>
+          <Chevron />
+        </button>
+        <button className="item" onClick={onPlan}>
+          <div className="grow">
+            <div className="label">전력 보강 예산 · 내 예산 {Math.round(sim.budget)}억</div>
+            <div style={{ fontWeight: 600, color: state.monthPlan ? 'var(--ink)' : 'var(--muted)' }}>{planSummary(state.monthPlan)}</div>
+          </div>
+          <Chevron />
+        </button>
+      </section>
+
+      {fixtures.length > 0 && (
+        <section className="card stack" aria-label="이번 달 일정">
+          <div className="row between">
+            <h2 className="card-title">{monthLabel} 일정</h2>
+            <span className="tag">{fixtures.length}경기</span>
+          </div>
+          <div>
+            {fixtures.map((f) => {
+              const opp = state.clubs[f.oppId]
+              return (
+                <div key={f.round} className="row" style={{ padding: '8px 0' }}>
+                  <span className="label tnum" style={{ width: 30 }}>
+                    {f.round}R
+                  </span>
+                  <Crest clubId={f.oppId} size={28} />
+                  <div className="grow" style={{ fontWeight: 600 }}>
+                    {clubById(f.oppId).short} <span className="label">{f.home ? '홈' : '원정'}</span>
+                  </div>
+                  <span className="tag">{PHILOSOPHY_LABEL[opp.philosophy]}</span>
+                  <span className="tag accent">{MATCHUP_LABEL[matchupOf(t.philosophy, opp.philosophy)]}</span>
+                </div>
+              )
+            })}
+          </div>
           <button className="btn primary block" onClick={onPlay}>
-            경기 진행
+            {monthLabel} 진행
           </button>
         </section>
       )}
     </div>
   )
 }
+

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { clubById } from '../data/clubs'
 import { OUTCOME_LABEL } from '../engine/career'
+import { MONTH_LABEL, MONTH_ROUNDS } from '../engine/season'
 import type { GameState } from '../engine/types'
 import { Crest, Segmented } from './components'
 import { KIND_LABEL, resultOf, standingsOf } from './derive'
@@ -16,7 +17,7 @@ export function SeasonTab({ state }: { state: GameState }) {
     <div className="screen">
       <h1 className="screen-title">시즌</h1>
       <p className="screen-sub">
-        {state.season}시즌 · {state.round}/18라운드 완료
+        {state.season}시즌 · {state.round}/18라운드 완료 ({Math.floor(state.round / MONTH_ROUNDS)}/6개월)
       </p>
       <Segmented
         value={sub}
@@ -31,6 +32,12 @@ export function SeasonTab({ state }: { state: GameState }) {
       {sub === 'schedule' && (
         <section className="card flush">
           {state.fixtures.map((round, i) => {
+            const header =
+              i % MONTH_ROUNDS === 0 ? (
+                <div className="label" style={{ padding: '12px 20px 4px', fontWeight: 700 }}>
+                  {MONTH_LABEL[i / MONTH_ROUNDS]}
+                </div>
+              ) : null
             const f = round.find((x) => x.home === uid || x.away === uid)!
             const home = f.home === uid
             const oppId = home ? f.away : f.home
@@ -38,7 +45,9 @@ export function SeasonTab({ state }: { state: GameState }) {
             const r = played ? state.results.find((x) => x.round === i + 1 && (x.home === uid || x.away === uid)) : undefined
             const res = r ? resultOf(r, uid) : null
             return (
-              <div key={i} className="item" style={i === state.round ? { background: 'var(--accent-soft)' } : undefined}>
+              <div key={i}>
+                {header}
+              <div className="item" style={i === state.round ? { background: 'var(--accent-soft)' } : undefined}>
                 <span className="label tnum" style={{ width: 28 }}>
                   {i + 1}R
                 </span>
@@ -59,6 +68,7 @@ export function SeasonTab({ state }: { state: GameState }) {
                 ) : (
                   <span className="label">{i === state.round ? '다음 경기' : ''}</span>
                 )}
+              </div>
               </div>
             )
           })}

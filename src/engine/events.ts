@@ -177,6 +177,10 @@ export interface RollContext {
 }
 
 /** 라운드가 끝난 뒤 새 이벤트를 굴린다. 한 번에 최대 2개, 대기 중 최대 4개. */
+/** 이벤트 판정은 한 달에 한 번이라, 라운드마다 굴리던 확률을 이 배율로 보정한다 */
+const RATE = 2.5
+const roll = (rng: Rng, p: number) => rng.chance(Math.min(0.85, p * RATE))
+
 export function rollEvents(s: GameState, rng: Rng, ctx: RollContext): PendingEvent[] {
   const club = userClub(s)
   const created: PendingEvent[] = []
@@ -199,18 +203,18 @@ export function rollEvents(s: GameState, rng: Rng, ctx: RollContext): PendingEve
   }
 
   // 3) 팬 항의
-  if (ctx.recentNoWin && !has(s, 'protest') && rng.chance(0.7)) add('protest', {})
+  if (ctx.recentNoWin && !has(s, 'protest') && rng.chance(0.5)) add('protest', {})
 
   // 4) 선수 불만
   const unhappy = club.squad
     .filter((p) => p.injuredRounds === 0 && ((p.benchStreak >= 3 && p.ovr >= 66 && p.morale < 60) || p.morale < 35))
     .sort((a, b) => a.morale - b.morale)[0]
-  if (unhappy && !has(s, 'complaint', 'playerId', unhappy.id) && rng.chance(0.55)) {
+  if (unhappy && !has(s, 'complaint', 'playerId', unhappy.id) && rng.chance(0.7)) {
     add('complaint', { playerId: unhappy.id, no: unhappy.no, pos: unhappy.pos, ovr: unhappy.ovr })
   }
 
   // 5) 이적 제안
-  if (s.round >= 3 && s.round <= 15 && rng.chance(0.12) && !has(s, 'offer')) {
+  if (s.round >= 3 && s.round <= 15 && roll(rng, 0.12) && !has(s, 'offer')) {
     const stars = [...club.squad].sort((a, b) => b.ovr - a.ovr).slice(0, 8).filter((p) => p.age <= 31)
     if (stars.length) {
       const p = rng.pick(stars)
@@ -222,7 +226,7 @@ export function rollEvents(s: GameState, rng: Rng, ctx: RollContext): PendingEve
   }
 
   // 6) 유망주
-  if (s.round >= 3 && rng.chance(0.09) && !has(s, 'prospect') && club.squad.length < SQUAD_MAX - 1) {
+  if (s.round >= 3 && rng.chance(Math.min(0.85, 0.09 * RATE + s.youthInvest * 0.04)) && !has(s, 'prospect') && club.squad.length < SQUAD_MAX - 1) {
     const pos = rng.pick(['DF', 'MF', 'FW'] as Position[])
     const kid = makePlayer(rng, 0, pos, 66, { youth: true })
     kid.pot = clamp(kid.pot + 4 + Math.round((s.manager?.abilities.youth ?? 5) / 2), 60, 92)
@@ -230,20 +234,20 @@ export function rollEvents(s: GameState, rng: Rng, ctx: RollContext): PendingEve
   }
 
   // 7) 라이벌 도발
-  if (rng.chance(0.06) && !has(s, 'rival')) {
+  if (roll(rng, 0.06) && !has(s, 'rival')) {
     const others = Object.keys(s.clubs).filter((id) => id !== s.userClubId)
     add('rival', { rivalName: clubById(rng.pick(others)).short })
   }
 
   // 8) 라커룸 갈등
   const avgMorale = club.squad.reduce((a, p) => a + p.morale, 0) / Math.max(1, club.squad.length)
-  if (rng.chance(avgMorale < 55 ? 0.1 : 0.03) && !has(s, 'lockerroom') && club.squad.length >= 2) {
+  if (roll(rng, avgMorale < 55 ? 0.1 : 0.03) && !has(s, 'lockerroom') && club.squad.length >= 2) {
     const [a, b] = rng.shuffle(club.squad).slice(0, 2)
     add('lockerroom', { aId: a.id, bId: b.id, a: playerLabel(a), b: playerLabel(b) })
   }
 
   // 9) 기자회견 — 가장 흔한 이벤트
-  if (rng.chance(0.3) && !has(s, 'press')) add('press', { summary: ctx.summary })
+  if (roll(rng, 0.3) && !has(s, 'press')) add('press', { summary: ctx.summary })
 
   return created
 }
@@ -284,7 +288,7 @@ export function resolveEvent(s: GameState, rng: Rng, uid: string, choiceId: stri
 }
 
 /** 선택하지 않고 기한이 지난 이벤트: 가장 소극적인 결과로 처리 */
-export function expireEvents(s: GameState, rng: Rng, maxAge = 3): EventOutcome[] {
+export function expireEvents(s: GameState, rng: Rng, maxAge = 6): EventOutcome[] {
   const outs: EventOutcome[] = []
   for (const ev of [...s.events]) {
     if (s.season !== ev.season || s.round - ev.createdRound >= maxAge) {

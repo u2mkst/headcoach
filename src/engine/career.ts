@@ -216,7 +216,7 @@ export function runOffseason(s: GameState, rng: Rng): string[] {
   const mgr = s.manager
   const coach = s.coach
 
-  const youthBonus = (mgr ? mgr.abilities.youth * 0.07 : 0) + (coach?.specialty === 'youth' ? coach.rating * 0.025 : 0)
+  const youthBonus = (mgr ? mgr.abilities.youth * 0.07 : 0) + (coach?.specialty === 'youth' ? coach.rating * 0.025 : 0) + s.youthInvest * 0.15
   const protect = coach?.specialty === 'fitness' ? coach.rating * 0.04 : 0
 
   for (const club of Object.values(s.clubs)) {
@@ -284,6 +284,8 @@ export function runOffseason(s: GameState, rng: Rng): string[] {
     }
   }
 
+  s.youthInvest = 0
+
   // 순위에 따른 시즌 수입
   const last = s.seasons[s.seasons.length - 1]
   if (last) {
@@ -296,33 +298,20 @@ export function runOffseason(s: GameState, rng: Rng): string[] {
   s.season += 1
   s.round = 0
   s.results = []
-  s.lastRound = null
+  s.monthReport = null
+  s.monthPlan = null
+  s.fitnessBoost = 0
+  s.fan = { support: Math.round(50 + (s.fan.support - 50) * 0.6), results: 50, style: Math.round(50 + (s.fan.style - 50) * 0.6) }
   s.fixtures = generateSchedule(rng, Object.keys(s.clubs))
   s.events = []
-  s.manualLineup = null
   s.wasInDanger = false
   s.promises = s.promises.filter((p) => p.season >= s.season)
   s.tacticMemory = { streak: 0, lastKey: null, familiarity: Math.round(s.tacticMemory.familiarity * 0.6), lastPhilosophy: s.tacticMemory.lastPhilosophy }
   s.seasonStartBudget = Math.round(userClub(s).budget)
   const ranking = strengthRanking(s)
   s.targetRank = targetRankFor(ranking.indexOf(uid) + 1)
-  s.market = refreshMarket(s, rng)
   s.phase = 'play'
   return lines.slice(0, 24)
-}
-
-/** 이적 시장 목록: 자유계약 선수 위주로 14명 */
-export function refreshMarket(s: GameState, rng: Rng): Player[] {
-  const my = clubById(s.userClubId as string)
-  const out: Player[] = []
-  const positions: Position[] = ['GK', 'DF', 'DF', 'DF', 'MF', 'MF', 'MF', 'MF', 'FW', 'FW', 'FW', 'DF', 'MF', 'FW']
-  for (const pos of positions) {
-    const p = makePlayer(rng, 0, pos, my.strength + rng.int(-6, 7))
-    p.id = newId(s, 'p')
-    p.academy = false
-    out.push(p)
-  }
-  return out.sort((a, b) => b.ovr - a.ovr)
 }
 
 export function newClubSims(s: GameState, rng: Rng): void {

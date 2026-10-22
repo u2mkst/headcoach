@@ -163,21 +163,6 @@ export function pickLineup(squad: Player[], formation: FormationId): Player[] {
   return out
 }
 
-/** 수동 선발을 검증해 쓸 수 있는 11명으로 돌려준다. 문제가 있으면 자동 선발. */
-export function resolveLineup(squad: Player[], formation: FormationId, manual: string[] | null): Player[] {
-  if (manual) {
-    const f = FORMATIONS[formation]
-    const chosen = manual
-      .map((id) => squad.find((p) => p.id === id))
-      .filter((p): p is Player => !!p && isAvailable(p))
-    const count = (pos: Position) => chosen.filter((p) => p.pos === pos).length
-    if (chosen.length === 11 && count('GK') === 1 && count('DF') === f.DF && count('MF') === f.MF && count('FW') === f.FW) {
-      return chosen
-    }
-  }
-  return pickLineup(squad, formation)
-}
-
 export interface LineRatings {
   att: number
   mid: number

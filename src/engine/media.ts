@@ -1,112 +1,144 @@
 import type { Rng } from './rng'
 import { clubById } from '../data/clubs'
 import { pushFeed } from './helpers'
-import { josa } from './josa'
-import type { GameState, MatchResult, Standing } from './types'
+import { FOCUS_LABEL } from './reinforce'
+import { MONTH_LABEL } from './season'
+import type { FanTopic, GameState, MonthPlan, MonthReport, Standing } from './types'
 
 const OUTLETS = ['스포츠 타임스', '풋볼 데일리', '킥오프 뉴스', '그라운드 리포트']
-const FANS = ['서포터즈 게시판', '팬 커뮤니티', '경기장 앞 팬', '원정 응원단']
+const NICKS = [
+  '열혈서포터', '골대불운', '말없이응원', '전술분석가', '새벽직관러', '원정버스', '시즌권홀더',
+  '치킨내기', '라인업장인', '응원단장', '동네축구팬', '북측응원석', '해트트릭소망', '무관중시절부터',
+]
+
+type Mood = 'good' | 'bad' | 'neutral'
+interface Cand {
+  topic: FanTopic
+  mood: Mood
+  text: string
+  weight: number
+}
 
 const pick = <T,>(rng: Rng, arr: T[]) => arr[Math.floor(rng.next() * arr.length)]
 
-/** 가상 기사·팬 반응을 만든다. 모든 문구는 가상의 매체·팬 반응이다. */
-export function generateRoundMedia(
+/**
+ * 한 달치 가상 기사와 팬 커뮤니티 글을 만든다. 모든 매체와 글은 가상이다.
+ * 커뮤니티 글은 이번 달 결과·전술·보강 선택·현재 지지도에 맞는 주제로 뽑힌다.
+ * 반환값은 보고 화면에 보여줄 베스트 글이다.
+ */
+export function generateMonthMedia(
   s: GameState,
   rng: Rng,
-  userResult: MatchResult,
+  rep: MonthReport,
   standings: Standing[],
-  allResults: MatchResult[],
-) {
+  plan: MonthPlan | null,
+  planApplied: boolean,
+): MonthReport['highlights'] {
   const uid = s.userClubId as string
   const me = clubById(uid).short
-  const home = userResult.home === uid
-  const oppId = home ? userResult.away : userResult.home
-  const opp = clubById(oppId).short
-  const gf = home ? userResult.hg : userResult.ag
-  const ga = home ? userResult.ag : userResult.hg
-  const margin = gf - ga
-  const rank = standings.findIndex((x) => x.clubId === uid) + 1
   const mgr = s.manager?.name ?? '감독'
-  const score = `${userResult.hg}-${userResult.ag}`
-  const outlet = pick(rng, OUTLETS)
+  const m = MONTH_LABEL[rep.month - 1]
+  const rank = rep.rankAfter
+  const phil = s.tactics.philosophy
+  const streak = s.tacticMemory.streak
+  const support = s.fan.support
 
+  /* ── 기사 ── */
+  const net = rep.w - rep.l
   let headline: string
-  let mood: 'good' | 'bad' | 'neutral'
-  if (margin >= 3) {
-    headline = pick(rng, [
-      `${me}, ${opp} 상대로 ${score} 대승… ${mgr} 감독 "준비한 대로 풀렸다"`,
-      `폭발한 ${me}, ${josa(opp, '을/를')} ${score}로 완파`,
-    ])
+  let mood: Mood
+  if (rep.w === 3) {
+    headline = `${me}, ${m} 전승… 순위 ${rank}위로 도약`
     mood = 'good'
-  } else if (margin > 0) {
-    headline = pick(rng, [
-      `${me}, ${opp}에 ${score} 승리… 순위 ${rank}위로`,
-      `${mgr} 감독의 ${me}, 접전 끝에 ${opp} 제압`,
-    ])
+  } else if (rep.l === 3) {
+    headline = `${me}, ${m} 3연패 늪… ${mgr} 감독 경질론 고개`
+    mood = 'bad'
+  } else if (net > 0) {
+    headline = `${me}, ${m} ${rep.w}승 ${rep.d}무 ${rep.l}패로 분위기 반등… ${rank}위`
     mood = 'good'
-  } else if (margin === 0) {
-    headline = pick(rng, [
-      `${me}-${opp} ${score} 무승부, 승점 1점씩 나눠 가져`,
-      `${me}, ${josa(opp, '과/와')} 팽팽한 승부 끝에 비겨`,
-    ])
-    mood = 'neutral'
-  } else if (margin > -3) {
-    headline = pick(rng, [
-      `${me}, ${opp}에 ${score} 패배… ${mgr} 감독 고민 깊어져`,
-      `아쉬운 ${me}, ${opp}에 무릎`,
-    ])
+  } else if (net < 0) {
+    headline = `${me}, ${m} ${rep.w}승 ${rep.d}무 ${rep.l}패 부진… ${mgr} 감독 "변화 필요"`
     mood = 'bad'
   } else {
-    headline = pick(rng, [
-      `${me}, ${opp}에 ${score} 대패… 수비 조직력에 물음표`,
-      `충격의 ${score} ${me}, ${opp} 상대로 무너졌다`,
-    ])
-    mood = 'bad'
+    headline = `${me}, ${m} ${rep.w}승 ${rep.d}무 ${rep.l}패로 제자리걸음… ${rank}위`
+    mood = 'neutral'
   }
-  pushFeed(s, { kind: 'article', source: outlet, text: headline, mood })
+  pushFeed(s, { kind: 'article', source: pick(rng, OUTLETS), text: headline, mood })
 
-  // 리그 소식 한 줄
   const leader = standings[0]
-  const league = pick(rng, [
-    `${clubById(leader.clubId).short}, ${s.round}라운드 현재 선두… 승점 ${leader.pts}점`,
-    standings.length > 1
-      ? `${josa(clubById(standings[0].clubId).short, '과/와')} ${clubById(standings[1].clubId).short}의 선두 경쟁 이어져`
-      : `리그 선두 경쟁 치열`,
-  ])
-  pushFeed(s, { kind: 'article', source: pick(rng, OUTLETS), text: league, mood: 'neutral' })
-
-  const biggest = [...allResults].sort((a, b) => Math.abs(b.hg - b.ag) - Math.abs(a.hg - a.ag))[0]
-  if (biggest && Math.abs(biggest.hg - biggest.ag) >= 3 && biggest !== userResult) {
-    const w = biggest.hg > biggest.ag ? biggest.home : biggest.away
-    const l = w === biggest.home ? biggest.away : biggest.home
+  pushFeed(s, {
+    kind: 'article',
+    source: pick(rng, OUTLETS),
+    text: `${clubById(leader.clubId).short}, ${s.round}라운드 현재 선두… 승점 ${leader.pts}점`,
+    mood: 'neutral',
+  })
+  if (plan && planApplied && rep.planLine) {
     pushFeed(s, {
       kind: 'article',
       source: pick(rng, OUTLETS),
-      text: `${clubById(w).short}, ${clubById(l).short}에 ${biggest.hg}-${biggest.ag} 승리… 이번 라운드 최다 득점 차`,
-      mood: 'neutral',
+      text: `${me} ${m} 행보: ${FOCUS_LABEL[plan.focus]} — ${rep.planLine}`,
+      mood: plan.focus === 'save' ? 'bad' : 'good',
     })
   }
 
-  // 팬 반응
-  const fanGood = [
-    `오늘 경기 진짜 좋았다. ${mgr} 감독님 믿습니다`,
-    `${me} 이대로만 가자!`,
-    `이래서 축구장 못 끊는다. 다음 경기도 간다`,
-  ]
-  const fanBad = [
-    `전술이 너무 뻔하다. 상대가 다 읽는 것 같은데…`,
-    `${mgr} 감독, 이제 변화가 필요하지 않나요`,
-    `오늘은 선수들도 지쳐 보였다. 로테이션 좀 합시다`,
-  ]
-  const fanMeh = [`무난한 경기였다. 다음 경기를 보자`, `승점 1점이라도 챙긴 걸로 만족`]
-  const pool = mood === 'good' ? fanGood : mood === 'bad' ? fanBad : fanMeh
-  pushFeed(s, { kind: 'fan', source: pick(rng, FANS), text: pick(rng, pool), mood })
-  if ([4, 8, 12, 16].includes(s.tacticMemory.streak)) {
-    pushFeed(s, {
-      kind: 'fan',
-      source: pick(rng, FANS),
-      text: `같은 전술을 ${s.tacticMemory.streak}경기째 쓰고 있다. 상대가 대비하기 시작한 것 같다`,
-      mood: 'bad',
-    })
+  /* ── 커뮤니티 글 후보 ── */
+  const c: Cand[] = []
+  const add = (topic: FanTopic, mood: Mood, text: string, weight = 1) => c.push({ topic, mood, text, weight })
+
+  if (rep.w >= 2) {
+    add('성적', 'good', `${m}에만 ${rep.w}승! ${me} 이대로 쭉 가자`, 3)
+    add('감독', 'good', `${mgr} 감독 이번 달은 점수 줄 만하다`, 2)
   }
+  if (rep.l >= 2) {
+    add('성적', 'bad', `${m}에만 ${rep.l}패… 이게 맞나`, 3)
+    add('감독', 'bad', `${mgr} 감독, 이제 변화가 필요하지 않나요`, 2)
+  }
+  if (rep.w < 2 && rep.l < 2) add('성적', 'neutral', '들쭉날쭉하다. 한 달 더 지켜보자', 2)
+  if (rank <= 3) add('성적', 'good', '이 페이스면 우승 경쟁도 가능하겠다', 2)
+  if (rank >= 9) add('성적', 'bad', '순위표 아래쪽이 익숙해지는 게 제일 무섭다', 3)
+
+  if (rep.gf >= 6) add('전술', 'good', '골이 터지니 보는 맛이 있다', 3)
+  if (rep.ga >= 6) add('전술', 'bad', '수비가 너무 불안하다. 라인 좀 정리해라', 3)
+  if (rep.gf <= 1) add('전술', 'bad', '한 달 내내 골이 없다. 공격 전술이 문제 같다', 3)
+  if (phil === 'attack') add('전술', rep.w >= 2 ? 'good' : 'bad', rep.w >= 2 ? '공격 축구 믿고 간다' : '공격만 외치다 뒷문이 열린다', 2)
+  if (phil === 'defense') add('전술', rep.w >= 2 ? 'good' : 'bad', rep.w >= 2 ? '지키는 축구도 이기면 예술이다' : '지키기만 하다 지는 건 최악', 2)
+  if (phil === 'possession') add('전술', rep.gf >= 4 ? 'good' : 'bad', rep.gf >= 4 ? '점유하면서 골까지 넣으니 좋다' : '점유율만 높고 골이 없다', 2)
+  if (phil === 'counter') add('전술', rep.w >= 2 ? 'good' : 'neutral', rep.w >= 2 ? '역습 한 방이 시원하다' : '역습이 번번이 막힌다', 2)
+  if (streak >= 5) add('전술', 'bad', `같은 전술이 ${streak}경기째… 상대가 다 읽는다`, 4)
+  if (s.tacticMemory.familiarity < 20 && s.round > 3) add('전술', 'neutral', '전술이 자주 바뀌어서 선수들이 적응하기 힘들어 보인다', 2)
+
+  if (plan && planApplied) {
+    if (plan.focus === 'save') add('보강', 'bad', '이번 달도 지갑을 닫았다. 투자 좀 하자', 3)
+    else if (plan.focus === 'youth') add('보강', 'good', '유소년 투자는 응원! 장기적으로 이게 맞다', 2)
+    else if (plan.focus === 'fitness') add('보강', 'neutral', '컨디션 관리에 신경 쓰는 모양이다', 1)
+    else add('보강', 'good', `${FOCUS_LABEL[plan.focus]} 소식 반갑다. 이제 달라지겠지`, 3)
+  } else {
+    add('보강', 'neutral', `${m}은 보강 소식이 한 줄도 없네`, 1)
+  }
+
+  if (support >= 70) add('감독', 'good', `${mgr} 감독 재계약 청원합니다`, 2)
+  if (support <= 30) add('감독', 'bad', '감독 교체 여론이 커지고 있다', 3)
+
+  // 가중치로 6개를 뽑는다 (중복 없이)
+  const chosen: Cand[] = []
+  const pool = [...c]
+  while (chosen.length < 6 && pool.length) {
+    const x = rng.weighted(pool, (p) => p.weight)
+    chosen.push(x)
+    pool.splice(pool.indexOf(x), 1)
+  }
+  const nicks = rng.shuffle(NICKS)
+  const posts = chosen.map((x, i) => ({
+    ...x,
+    nick: nicks[i % nicks.length],
+    likes: rng.int(3, 40) + x.weight * rng.int(5, 30),
+  }))
+  for (const p of posts) {
+    pushFeed(s, { kind: 'fan', source: p.nick, text: p.text, mood: p.mood, topic: p.topic, likes: p.likes })
+  }
+
+  return [...posts]
+    .sort((a, b) => b.likes - a.likes)
+    .slice(0, 3)
+    .map((p) => ({ nick: p.nick, text: p.text, likes: p.likes, mood: p.mood }))
 }

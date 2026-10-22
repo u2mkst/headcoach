@@ -1,6 +1,6 @@
 import type { Rng } from './rng'
 import { simulateMatch, type TeamSide } from './match'
-import { pickLineup, resolveLineup, clamp } from './squad'
+import { pickLineup, clamp } from './squad'
 import type {
   ClubSim,
   Fixture,
@@ -13,6 +13,9 @@ import type {
 } from './types'
 
 export const ROUNDS = 18
+/** 한 달 = 3라운드, 한 시즌 = 6개월 */
+export const MONTH_ROUNDS = 3
+export const MONTH_LABEL = ['3월', '4월', '5월', '6월', '7월', '8월']
 export const EXPOSURE_AFTER = 5
 
 /** 원형 배치 방식 풀리그: 전반 9라운드 + 홈/원정을 뒤집은 후반 9라운드 */
@@ -127,7 +130,7 @@ export function simulateRound(state: GameState, rng: Rng): RoundOutput {
   const sideFor = (clubId: string): TeamSide => {
     const club = state.clubs[clubId]
     if (clubId === state.userClubId) {
-      const lineup = resolveLineup(club.squad, state.tactics.formation, state.manualLineup)
+      const lineup = pickLineup(club.squad, state.tactics.formation)
       lineups.set(clubId, lineup)
       return { clubId, lineup, tactics: state.tactics, mult: userMultiplier(state, userMemory) }
     }
@@ -149,7 +152,8 @@ export function simulateRound(state: GameState, rng: Rng): RoundOutput {
       const mine = clubId === r.home ? r.hg : r.ag
       const theirs = clubId === r.home ? r.ag : r.hg
       const pressing = clubId === state.userClubId ? state.tactics.pressing : 'mid'
-      applyMatchToSquad(rng, club.squad, lineup, r, mine - theirs, pressing, clubId)
+      const care = clubId === state.userClubId ? state.fitnessBoost : 0
+      applyMatchToSquad(rng, club.squad, lineup, r, mine - theirs, pressing, clubId, care)
     }
   }
   return { results, userMemory }
@@ -164,6 +168,8 @@ function applyMatchToSquad(
   diff: number,
   pressing: 'low' | 'mid' | 'high',
   clubId: string,
+  /** 컨디션 관리 강도 (0~3): 회복이 빨라지고 부상이 줄어든다 */
+  care: number,
 ) {
   const started = new Set(lineup.map((p) => p.id))
   const goals = new Map<string, number>()
@@ -185,16 +191,16 @@ function applyMatchToSquad(
       const g = goals.get(p.id) ?? 0
       p.seasonGoals += g
       p.careerGoals += g
-      p.condition = clamp(p.condition - drain + 6, 20, 100)
+      p.condition = clamp(p.condition - drain + 6 + care * 2, 20, 100)
       p.morale = clamp(p.morale + resultMorale + g * 2, 10, 100)
-      const injuryRisk = 0.018 + (p.condition < 55 ? 0.025 : 0) + (pressing === 'high' ? 0.006 : 0)
+      const injuryRisk = (0.018 + (p.condition < 55 ? 0.025 : 0) + (pressing === 'high' ? 0.006 : 0)) * (1 - care * 0.15)
       if (rng.chance(injuryRisk)) {
         const roll = rng.next()
         p.injuredRounds = roll < 0.6 ? rng.int(1, 2) : roll < 0.92 ? rng.int(3, 5) : rng.int(6, 9)
       }
     } else {
       p.benchStreak++
-      p.condition = clamp(p.condition + 9, 20, 100)
+      p.condition = clamp(p.condition + 9 + care * 2, 20, 100)
       // 못 뛰는 주전급 선수의 불만 누적
       const isNotable = p.ovr >= 66
       p.morale = clamp(p.morale + (resultMorale > 0 ? 1 : 0) - (isNotable && p.benchStreak >= 3 ? 3 : 0), 10, 100)

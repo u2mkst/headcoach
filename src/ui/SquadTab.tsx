@@ -1,25 +1,21 @@
 import { useState } from 'react'
 import { clubById } from '../data/clubs'
-import { buyPlayer, buyPrice, resetLineup, sellPlayer, sellPrice, setTactics, swapStarter } from '../engine/game'
+import { setMonthPlan, setTactics } from '../engine/game'
 import { userClub } from '../engine/helpers'
-import { copula, josa } from '../engine/josa'
+import { FOCUS_LABEL, LINE_POS } from '../engine/reinforce'
 import { EXPOSURE_AFTER, nextTacticMemory } from '../engine/season'
 import {
   FORMATION_IDS,
   LEVEL_LABEL,
-  PHILOSOPHY_BEATS,
   PHILOSOPHY_DESC,
   PHILOSOPHY_LABEL,
-  POS_LABEL,
-  playerLabel,
-  resolveLineup,
 } from '../engine/squad'
-import type { GameState, Level, Philosophy, Player, Position } from '../engine/types'
-import { Bar, Segmented, Sheet } from './components'
-import { MATCHUP_LABEL, matchupOf, nextFixture } from './derive'
+import type { GameState, Level, Philosophy } from '../engine/types'
+import { Bar, Segmented } from './components'
+import { currentMonthLabel, lineInfos, MATCHUP_LABEL, matchupOf, monthFixtures } from './derive'
+import { PlanSheet, planSummary } from './Plan'
 
-type Sub = 'tactics' | 'lineup' | 'players' | 'market'
-const POS_ORDER: Position[] = ['GK', 'DF', 'MF', 'FW']
+type Sub = 'tactics' | 'power' | 'plan'
 const PHILOSOPHIES: Philosophy[] = ['attack', 'possession', 'defense', 'counter']
 const LEVELS: Level[] = ['low', 'mid', 'high']
 
@@ -41,23 +37,20 @@ export function SquadTab({
         onChange={setSub}
         options={[
           { id: 'tactics', label: '전술' },
-          { id: 'lineup', label: '선발' },
-          { id: 'players', label: '선수' },
-          { id: 'market', label: '이적' },
+          { id: 'power', label: '전력' },
+          { id: 'plan', label: '보강' },
         ]}
       />
       {sub === 'tactics' && <Tactics state={state} onChange={onChange} />}
-      {sub === 'lineup' && <Lineup state={state} onChange={onChange} />}
-      {sub === 'players' && <Players state={state} onChange={onChange} toast={toast} />}
-      {sub === 'market' && <Market state={state} onChange={onChange} toast={toast} />}
+      {sub === 'power' && <Power state={state} />}
+      {sub === 'plan' && <Plan state={state} onChange={onChange} toast={toast} />}
     </div>
   )
 }
 
 function Tactics({ state, onChange }: { state: GameState; onChange: (s: GameState) => void }) {
   const t = state.tactics
-  const next = nextFixture(state)
-  const opp = next ? state.clubs[next.oppId] : null
+  const fixtures = monthFixtures(state)
   const preview = nextTacticMemory(state.tacticMemory, t)
   const warn = preview.streak >= EXPOSURE_AFTER
   return (
@@ -81,19 +74,21 @@ function Tactics({ state, onChange }: { state: GameState; onChange: (s: GameStat
           ))}
           <span>· 앞이 뒤에 강해요</span>
         </div>
-        {opp && (
-          <div className="row between" style={{ background: 'var(--bg)', borderRadius: 12, padding: '10px 14px' }}>
-            <span className="label">
-              다음 상대 {clubById(opp.id).short} · {PHILOSOPHY_LABEL[opp.philosophy]}
-            </span>
-            <span className="tag accent">{MATCHUP_LABEL[matchupOf(t.philosophy, opp.philosophy)]}</span>
+        {fixtures.length > 0 && (
+          <div className="stack" style={{ gap: 6, background: 'var(--bg)', borderRadius: 12, padding: '10px 14px' }}>
+            <span className="label">{currentMonthLabel(state)} 상대</span>
+            {fixtures.map((f) => {
+              const opp = state.clubs[f.oppId]
+              return (
+                <div key={f.round} className="row between">
+                  <span style={{ fontWeight: 600 }}>
+                    {clubById(f.oppId).short} <span className="label">{PHILOSOPHY_LABEL[opp.philosophy]} 성향</span>
+                  </span>
+                  <span className="tag accent">{MATCHUP_LABEL[matchupOf(t.philosophy, opp.philosophy)]}</span>
+                </div>
+              )
+            })}
           </div>
-        )}
-        {opp && PHILOSOPHY_BEATS[t.philosophy] !== opp.philosophy && (
-          <span className="label">
-            {PHILOSOPHY_LABEL[opp.philosophy]}에 강한 철학은{' '}
-            {copula(PHILOSOPHY_LABEL[(Object.keys(PHILOSOPHY_BEATS) as Philosophy[]).find((p) => PHILOSOPHY_BEATS[p] === opp.philosophy) as Philosophy])}.
-          </span>
         )}
       </section>
 
@@ -156,241 +151,117 @@ function Tactics({ state, onChange }: { state: GameState; onChange: (s: GameStat
   )
 }
 
-function CondBar({ v }: { v: number }) {
-  return (
-    <div className="condbar" title={`컨디션 ${Math.round(v)}`}>
-      <i style={{ width: `${v}%`, background: v < 55 ? 'var(--gold)' : 'var(--accent)' }} />
-    </div>
-  )
-}
 
-function Lineup({ state, onChange }: { state: GameState; onChange: (s: GameState) => void }) {
+function Power({ state }: { state: GameState }) {
+  const lines = lineInfos(state)
   const club = userClub(state)
-  const lineup = resolveLineup(club.squad, state.tactics.formation, state.manualLineup)
-  const ids = lineup.map((p) => p.id)
-  const [swapping, setSwapping] = useState<Player | null>(null)
-  const candidates = swapping
-    ? club.squad.filter((p) => p.pos === swapping.pos && p.id !== swapping.id && !ids.includes(p.id) && p.injuredRounds === 0)
-    : []
+  const weakest = [...lines].filter((l) => l.pos !== 'GK').sort((a, b) => b.rank - a.rank || a.rating - b.rating)[0]
+  const young = club.squad.filter((p) => p.age <= 21).length
+  const old = club.squad.filter((p) => p.age >= 31).length
   return (
     <>
-      <section className="card flush">
-        {POS_ORDER.map((pos) =>
-          lineup
-            .filter((p) => p.pos === pos)
-            .map((p) => (
-              <button key={p.id} className="item" onClick={() => setSwapping(p)}>
-                <span className="pos">{pos}</span>
-                <div className="grow">
-                  <div style={{ fontWeight: 600 }}>{playerLabel(p)}</div>
-                  <div className="label">
-                    {p.age}세 · 사기 {Math.round(p.morale)}
-                  </div>
-                </div>
-                <CondBar v={p.condition} />
-                <div className="ovr">{p.ovr}</div>
-              </button>
-            )),
-        )}
-      </section>
-      <p className="label" style={{ padding: '0 4px' }}>
-        {state.manualLineup ? '직접 고른 선발이에요.' : '컨디션을 보고 자동으로 뽑은 선발이에요.'} 선수를 눌러 같은 포지션끼리 바꿀 수 있어요.
-      </p>
-      {state.manualLineup && (
-        <button className="btn secondary block" onClick={() => onChange(resetLineup(state))}>
-          자동 선발로 되돌리기
-        </button>
-      )}
-      {swapping && (
-        <Sheet onClose={() => setSwapping(null)}>
-          <h2 className="card-title">{playerLabel(swapping)} 대신 누구를 뛰게 할까요?</h2>
-          {candidates.length === 0 && <p className="empty">바꿀 수 있는 선수가 없어요</p>}
-          <div className="list">
-            {candidates.map((c) => (
-              <button
-                key={c.id}
-                className="option"
-                onClick={() => {
-                  onChange(swapStarter(state, swapping.id, c.id, ids))
-                  setSwapping(null)
-                }}
-              >
-                <span className="pos">{c.pos}</span>
-                <div className="grow">
-                  <div className="title" style={{ fontSize: 15 }}>
-                    {playerLabel(c)}
-                  </div>
-                  <div className="desc">
-                    {c.age}세 · 컨디션 {Math.round(c.condition)} · 사기 {Math.round(c.morale)}
-                  </div>
-                </div>
-                <div className="ovr">{c.ovr}</div>
-              </button>
-            ))}
-          </div>
-          <button className="btn ghost block" onClick={() => setSwapping(null)}>
-            닫기
-          </button>
-        </Sheet>
-      )}
-    </>
-  )
-}
-
-function Players({ state, onChange, toast }: { state: GameState; onChange: (s: GameState) => void; toast: (m: string) => void }) {
-  const club = userClub(state)
-  const [open, setOpen] = useState<string | null>(null)
-  const [selling, setSelling] = useState<Player | null>(null)
-  const sorted = [...club.squad].sort((a, b) => POS_ORDER.indexOf(a.pos) - POS_ORDER.indexOf(b.pos) || b.ovr - a.ovr)
-  return (
-    <>
-      <section className="card flush">
-        {sorted.map((p) => (
-          <div key={p.id}>
-            <button className="item" onClick={() => setOpen(open === p.id ? null : p.id)} aria-expanded={open === p.id}>
-              <span className="pos">{p.pos}</span>
-              <div className="grow">
-                <div style={{ fontWeight: 600 }}>
-                  {playerLabel(p)}{' '}
-                  {p.injuredRounds > 0 && <span className="tag alert">부상 {p.injuredRounds}R</span>}
-                  {p.age <= 21 && <span className="tag">유망주</span>}
-                </div>
-                <div className="label">
-                  {p.age}세 · 사기 {Math.round(p.morale)}
-                </div>
-              </div>
-              <CondBar v={p.condition} />
-              <div className="ovr">{p.ovr}</div>
-            </button>
-            {open === p.id && (
-              <div className="stack" style={{ padding: '4px 20px 16px', background: 'var(--surface)' }}>
-                <div className="row between">
-                  <span className="label">{POS_LABEL[p.pos]}</span>
-                  <span className="label">
-                    잠재력 {p.pot} · 계약 {p.contractYears}년
-                  </span>
-                </div>
-                <div className="row between">
-                  <span className="label">이번 시즌</span>
-                  <b>
-                    {p.seasonApps}경기 {p.seasonGoals}골
-                  </b>
-                </div>
-                <div className="row between">
-                  <span className="label">통산</span>
-                  <b>
-                    {p.careerApps}경기 {p.careerGoals}골
-                  </b>
-                </div>
-                <button className="btn small secondary" onClick={() => setSelling(p)}>
-                  이적 등록 (+{sellPrice(p)}억)
-                </button>
-              </div>
-            )}
+      <section className="card stack">
+        <h2 className="card-title">라인별 전력</h2>
+        <p className="label">숫자는 주전 능력치 평균, 순위는 리그 10개 구단 중 위치예요.</p>
+        {lines.map((l) => (
+          <div key={l.pos} className="stack" style={{ gap: 6 }}>
+            <div className="row between">
+              <b>
+                {l.label} <span className="muted" style={{ fontWeight: 500 }}>{l.count}명</span>
+              </b>
+              <span className="row" style={{ gap: 8 }}>
+                <b className="tnum">{l.rating}</b>
+                <span className={`tag ${l.rank <= 3 ? 'accent' : ''}`}>{l.rank}위</span>
+              </span>
+            </div>
+            <Bar value={((l.rating - 40) / 50) * 100} thin />
+            <div className="row between">
+              <span className="label">
+                컨디션 {l.condition} · 사기 {l.morale}
+              </span>
+              <span className="label">
+                {l.injured > 0 && <span className="tag alert" style={{ marginRight: 6 }}>부상 {l.injured}</span>}
+                평균 {l.avgAge}세
+              </span>
+            </div>
           </div>
         ))}
       </section>
-      {selling && (
-        <Sheet onClose={() => setSelling(null)}>
-          <h2 className="card-title">{josa(playerLabel(selling), '을/를')} 보낼까요?</h2>
-          <p className="label">이적료 {sellPrice(selling)}억이 예산에 들어와요. 되돌릴 수 없어요.</p>
-          <div className="row">
-            <button className="btn ghost" style={{ flex: 1 }} onClick={() => setSelling(null)}>
-              취소
-            </button>
-            <button
-              className="btn primary"
-              style={{ flex: 1 }}
-              onClick={() => {
-                const [next, err] = sellPlayer(state, selling.id)
-                if (err) toast(err)
-                else {
-                  onChange(next)
-                  toast(`${playerLabel(selling)} 이적 완료`)
-                }
-                setSelling(null)
-                setOpen(null)
-              }}
-            >
-              보내기
-            </button>
-          </div>
-        </Sheet>
-      )}
+      <section className="card stack">
+        <h2 className="card-title">선수단 한눈에</h2>
+        <div className="row between">
+          <span className="label">선수 수</span>
+          <b>{club.squad.length}명</b>
+        </div>
+        <div className="row between">
+          <span className="label">21세 이하</span>
+          <b>{young}명</b>
+        </div>
+        <div className="row between">
+          <span className="label">31세 이상</span>
+          <b>{old}명</b>
+        </div>
+        {weakest && (
+          <p className="label" style={{ color: 'var(--ink)' }}>
+            가장 약한 라인은 <b>{weakest.label}</b>({weakest.rank}위)이에요. 보강 탭에서 예산을 쓸 수 있어요.
+          </p>
+        )}
+      </section>
     </>
   )
 }
 
-function Market({ state, onChange, toast }: { state: GameState; onChange: (s: GameState) => void; toast: (m: string) => void }) {
+function Plan({ state, onChange, toast }: { state: GameState; onChange: (s: GameState) => void; toast: (m: string) => void }) {
+  const [open, setOpen] = useState(false)
   const club = userClub(state)
-  const [buying, setBuying] = useState<Player | null>(null)
+  const plan = state.monthPlan
   return (
     <>
-      <section className="card row between">
+      <section className="card stack">
         <div className="col">
           <span className="label">내 예산</span>
           <span className="big tnum">{Math.round(club.budget * 10) / 10}억</span>
         </div>
-        <span className="tag">선수단 {club.squad.length}/30</span>
+        <div className="divider" style={{ margin: 0 }} />
+        <div className="col">
+          <span className="label">{currentMonthLabel(state)} 보강 계획</span>
+          <b style={{ color: plan ? 'var(--ink)' : 'var(--muted)' }}>{planSummary(plan)}</b>
+        </div>
+        <button className="btn primary block" onClick={() => setOpen(true)}>
+          {plan ? '계획 바꾸기' : '쓸 곳 정하기'}
+        </button>
+        <span className="label">계획은 다음 달 진행과 함께 적용돼요. 한 번 쓴 예산은 돌려받을 수 없어요.</span>
       </section>
-      <section className="card flush">
-        {state.market.map((p) => (
-          <button key={p.id} className="item" onClick={() => setBuying(p)}>
-            <span className="pos">{p.pos}</span>
-            <div className="grow">
-              <div style={{ fontWeight: 600 }}>{playerLabel(p)}</div>
-              <div className="label">
-                {p.age}세 · 잠재력 {p.pot} · {buyPrice(state, p)}억
-              </div>
+      <section className="card stack">
+        <h2 className="card-title">어디에 쓰면 좋을까요?</h2>
+        {(['attack', 'midfield', 'defense', 'keeper'] as const).map((f) => {
+          const l = lineInfos(state).find((x) => x.pos === LINE_POS[f])
+          return (
+            <div key={f} className="row between">
+              <span>{FOCUS_LABEL[f]}</span>
+              <span className="label">
+                {l?.label} {l?.rank}위 · {l?.rating}
+              </span>
             </div>
-            <div className="ovr">{p.ovr}</div>
-          </button>
-        ))}
-        {state.market.length === 0 && <p className="empty">시장에 나온 선수가 없어요</p>}
+          )
+        })}
+        <p className="label">투자는 팬 지지도를 올리고, 아끼면 구단주 신뢰가 올라요. 팬과 구단주의 마음을 함께 봐야 해요.</p>
       </section>
-      <p className="notice">이적 시장은 4라운드마다, 그리고 오프시즌에 새로 바뀌어요.</p>
-      {buying && (
-        <Sheet onClose={() => setBuying(null)}>
-          <h2 className="card-title">{POS_LABEL[buying.pos]} 영입</h2>
-          <div className="stack">
-            <div className="row between">
-              <span className="label">포지션</span>
-              <b>{POS_LABEL[buying.pos]}</b>
-            </div>
-            <div className="row between">
-              <span className="label">능력치 / 잠재력</span>
-              <b>
-                {buying.ovr} / {buying.pot}
-              </b>
-            </div>
-            <div className="row between">
-              <span className="label">영입 비용</span>
-              <b>{buyPrice(state, buying)}억</b>
-            </div>
-          </div>
-          <div className="row">
-            <button className="btn ghost" style={{ flex: 1 }} onClick={() => setBuying(null)}>
-              취소
-            </button>
-            <button
-              className="btn primary"
-              style={{ flex: 1 }}
-              onClick={() => {
-                const [next, err] = buyPlayer(state, buying.id)
-                if (err) toast(err)
-                else {
-                  onChange(next)
-                  toast(`${POS_LABEL[buying.pos]} 영입 완료`)
-                }
-                setBuying(null)
-              }}
-            >
-              영입하기
-            </button>
-          </div>
-        </Sheet>
+      {open && (
+        <PlanSheet
+          state={state}
+          onClose={() => setOpen(false)}
+          onSave={(p) => {
+            const [next, err] = setMonthPlan(state, p)
+            if (err) toast(err)
+            else {
+              onChange(next)
+              toast(p ? '보강 계획을 정했어요' : '보강 계획을 취소했어요')
+            }
+            setOpen(false)
+          }}
+        />
       )}
     </>
   )
 }
-

@@ -41,7 +41,6 @@ export function removePlayer(s: GameState, id: string | number): Player | undefi
   const i = squad.findIndex((p) => p.id === String(id))
   if (i < 0) return undefined
   const [p] = squad.splice(i, 1)
-  if (s.manualLineup) s.manualLineup = s.manualLineup.filter((x) => x !== p.id)
   return p
 }
 

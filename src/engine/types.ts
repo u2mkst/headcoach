@@ -142,9 +142,53 @@ export interface FeedItem {
   kind: 'press' | 'article' | 'fan'
   season: number
   round: number
+  /** 매체 이름 또는 커뮤니티 닉네임 */
   source: string
   text: string
   mood?: 'good' | 'bad' | 'neutral'
+  /** 커뮤니티 글 전용 */
+  topic?: FanTopic
+  likes?: number
+}
+
+export type FanTopic = '성적' | '전술' | '보강' | '감독'
+
+/** 팬 지지도: 감독 지지도 + 성적 만족 + 경기 스타일 만족 (모두 0~100) */
+export interface FanState {
+  support: number
+  results: number
+  style: number
+}
+
+/** 전력 보강 예산을 쓸 곳 */
+export type SpendFocus = 'attack' | 'midfield' | 'defense' | 'keeper' | 'youth' | 'fitness' | 'save'
+export type SpendLevel = 'small' | 'medium' | 'large'
+export interface MonthPlan {
+  focus: SpendFocus
+  level: SpendLevel
+}
+
+export interface MonthReport {
+  season: number
+  /** 1~6 (3월~8월) */
+  month: number
+  /** 이번 달 내 경기 결과 */
+  results: MatchResult[]
+  w: number
+  d: number
+  l: number
+  gf: number
+  ga: number
+  rankBefore: number
+  rankAfter: number
+  fanBefore: FanState
+  fanAfter: FanState
+  trustDelta: number
+  /** 보강 결과 한 줄 (없으면 null) */
+  planLine: string | null
+  newInjuries: number
+  /** 이번 달 커뮤니티 베스트 글 */
+  highlights: { nick: string; text: string; likes: number; mood: 'good' | 'bad' | 'neutral' }[]
 }
 
 export interface TimelineItem {
@@ -236,8 +280,6 @@ export interface GameState {
   fixtures: Fixture[][]
   results: MatchResult[]
   tactics: Tactics
-  /** 선발 수동 지정 — null이면 자동 */
-  manualLineup: string[] | null
   tacticMemory: TacticMemory
   ownerTrust: number
   targetRank: number
@@ -250,10 +292,16 @@ export interface GameState {
   feed: FeedItem[]
   timeline: TimelineItem[]
   seasons: SeasonSummary[]
-  market: Player[]
+  /** 이번 달에 정한 보강 계획 (달이 시작될 때 적용) */
+  monthPlan: MonthPlan | null
+  fan: FanState
+  /** 이번 달 컨디션 관리 강화 (0 = 없음, 1~3 = 강도) */
+  fitnessBoost: number
+  /** 시즌 동안 쌓은 유소년 투자 점수 — 오프시즌 성장에 반영 */
+  youthInvest: number
   pendingCareer: PendingCareer | null
-  /** 이번 라운드에서 방금 끝난 경기 결과 (결과 화면용) */
-  lastRound: MatchResult[] | null
+  /** 방금 끝난 달의 보고서 (보고 화면용) */
+  monthReport: MonthReport | null
   retired: boolean
   /** 오프시즌 소식 (새 시즌 홈에서 한 번 보여주고 지운다) */
   offseasonReport: string[] | null

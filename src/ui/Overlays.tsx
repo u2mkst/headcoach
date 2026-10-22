@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { clubById } from '../data/clubs'
 import { describeEvent } from '../engine/events'
-import { computeStandings } from '../engine/season'
-import type { EventOutcome, GameState, MatchResult, PendingEvent } from '../engine/types'
-import { BottomBar, Crest, Icon } from './components'
-import { resultOf } from './derive'
+import { MONTH_LABEL } from '../engine/season'
+import type { EventOutcome, MatchResult, MonthReport, PendingEvent } from '../engine/types'
+import { Bar, BottomBar, Crest } from './components'
+import { KIND_LABEL, resultOf } from './derive'
+import { Delta } from './Home'
 
-const STATUS = ['선발 명단을 확인하고 있어요', '킥오프!', '전반전이 진행 중이에요', '후반전이 진행 중이에요', '경기가 끝났어요']
+const STATUS = ['이번 달 보강과 훈련을 마무리하고 있어요', '경기가 진행 중이에요', '팬 커뮤니티 반응을 모으고 있어요', '한 달이 지났어요']
 
 export function Progress({ onDone }: { onDone: () => void }) {
   const [i, setI] = useState(0)
@@ -16,7 +17,7 @@ export function Progress({ onDone }: { onDone: () => void }) {
       const t = setTimeout(onDone, reduce ? 200 : 700)
       return () => clearTimeout(t)
     }
-    const t = setTimeout(() => setI(i + 1), reduce ? 150 : 750)
+    const t = setTimeout(() => setI(i + 1), reduce ? 150 : 800)
     return () => clearTimeout(t)
   }, [i, onDone, reduce])
   return (
@@ -36,104 +37,123 @@ export function Progress({ onDone }: { onDone: () => void }) {
   )
 }
 
-export function ResultScreen({ state, onContinue }: { state: GameState; onContinue: () => void }) {
-  const uid = state.userClubId as string
-  const round = state.lastRound ?? []
-  const mine = round.find((r) => r.home === uid || r.away === uid) as MatchResult
-  const { gf, ga, kind } = resultOf(mine, uid)
-  const ids = Object.keys(state.clubs)
-  const before = computeStandings(state.results.filter((r) => r.round < mine.round), ids)
-  const after = computeStandings(state.results, ids)
-  const rankBefore = before.findIndex((x) => x.clubId === uid) + 1
-  const rankAfter = after.findIndex((x) => x.clubId === uid) + 1
-  const rankDiff = rankBefore - rankAfter
-  const others = round.filter((r) => r !== mine)
-  const headline = kind === 'w' ? '승리했어요' : kind === 'd' ? '비겼어요' : '졌어요'
-  const myScorers = mine.scorers.filter((s) => s.clubId === uid)
+const MOOD_LABEL = { good: '좋은 반응', bad: '쓴소리', neutral: '지켜보는 중' } as const
 
+/** 한 달이 끝난 뒤 보여주는 보고서: 결과 → 순위·신뢰 → 지지도 → 커뮤니티 베스트 */
+export function MonthReportScreen({ report, clubId, onContinue }: { report: MonthReport; clubId: string; onContinue: () => void }) {
+  const net = report.w - report.l
+  const headline = net >= 2 ? '좋은 한 달이었어요' : net <= -2 ? '힘든 한 달이었어요' : '무난한 한 달이었어요'
+  const rankDiff = report.rankBefore - report.rankAfter
+  const f = report.fanAfter
+  const fb = report.fanBefore
+  const gd = report.gf - report.ga
   return (
     <div className="overlay">
       <div className="inner">
-        <div className="steps" style={{ height: 'auto' }}>
+        <div>
           <span className="tag">
-            {mine.round}라운드 · {mine.home === uid ? '홈' : '원정'}
+            {report.season}시즌 · {MONTH_LABEL[report.month - 1]} 결산
           </span>
         </div>
         <h1 className="question" style={{ fontSize: 26 }}>
           {headline}
         </h1>
 
-        <section className="card stack">
-          <div className="versus">
-            <div className="team">
-              <Crest clubId={mine.home} size={48} />
-              <span>{clubById(mine.home).short}</span>
-            </div>
-            <div className="score">
-              {mine.hg}:{mine.ag}
-            </div>
-            <div className="team">
-              <Crest clubId={mine.away} size={48} />
-              <span>{clubById(mine.away).short}</span>
-            </div>
+        <section className="card flush">
+          {report.results.map((r) => (
+            <MatchRow key={r.round} r={r} clubId={clubId} />
+          ))}
+          <div className="divider" />
+          <div className="row between" style={{ padding: '12px 20px' }}>
+            <b>
+              {report.w}승 {report.d}무 {report.l}패
+            </b>
+            <span className="label tnum">
+              {report.gf}득점 {report.ga}실점 ({gd > 0 ? `+${gd}` : gd})
+            </span>
           </div>
         </section>
 
-        <section className="card stack" aria-label="주요 기록">
-          <h2 className="card-title">주요 기록</h2>
-          <div>
-            <div className="stat-row">
-              <span className="l tnum">{mine.possession}%</span>
-              <span className="mid">점유율</span>
-              <span className="r tnum">{100 - mine.possession}%</span>
+        <section className="card stack" aria-label="이번 달 변화">
+          {report.rankBefore > 0 && (
+            <div className="row between">
+              <span className="label">순위</span>
+              <b>
+                {report.rankBefore}위 → {report.rankAfter}위{' '}
+                {rankDiff > 0 && <span className="up">▲{rankDiff}</span>}
+                {rankDiff < 0 && <span className="muted">▼{-rankDiff}</span>}
+              </b>
             </div>
-            <div className="pbar" aria-hidden="true">
-              <i style={{ width: `${mine.possession}%` }} />
+          )}
+          {report.rankBefore === 0 && (
+            <div className="row between">
+              <span className="label">순위</span>
+              <b>{report.rankAfter}위</b>
             </div>
-          </div>
-          <div className="stat-row">
-            <span className="l tnum">{mine.shotsHome}</span>
-            <span className="mid">슈팅</span>
-            <span className="r tnum">{mine.shotsAway}</span>
-          </div>
+          )}
           <div className="row between">
-            <span className="label">순위</span>
+            <span className="label">구단주 신뢰</span>
             <b>
-              {rankAfter}위{' '}
-              {mine.round > 1 && rankDiff > 0 && <span className="up">▲{rankDiff}</span>}
-              {mine.round > 1 && rankDiff < 0 && <span className="muted">▼{-rankDiff}</span>}
+              {report.trustDelta > 0 ? <span className="up">▲{report.trustDelta}</span> : report.trustDelta < 0 ? <span className="muted">▼{-report.trustDelta}</span> : '-'}
+            </b>
+          </div>
+          {report.planLine && (
+            <div className="row between">
+              <span className="label">보강</span>
+              <b style={{ textAlign: 'right' }}>{report.planLine}</b>
+            </div>
+          )}
+          {report.newInjuries > 0 && (
+            <div className="row between">
+              <span className="label">부상</span>
+              <b>{report.newInjuries}명 발생</b>
+            </div>
+          )}
+        </section>
+
+        <section className="card stack" aria-label="팬 지지도">
+          <div className="row between" style={{ alignItems: 'flex-end' }}>
+            <div className="col">
+              <h2 className="card-title">팬 지지도</h2>
+              <span className="big tnum">{Math.round(f.support)}%</span>
+            </div>
+            <b className="tnum" style={{ fontSize: 20 }}>
+              <Delta v={f.support - fb.support} />
+            </b>
+          </div>
+          <Bar value={f.support} />
+          <div className="row between">
+            <span className="label">성적 만족</span>
+            <b className="tnum">
+              {Math.round(f.results)}% <Delta v={f.results - fb.results} />
             </b>
           </div>
           <div className="row between">
-            <span className="label">내 득점</span>
-            <b>
-              {gf}골 {ga === 0 && <span className="tag accent">무실점</span>}
-              {myScorers.length > 0 && myScorers.length !== new Set(myScorers.map((s) => s.playerId)).size && (
-                <span className="tag gold">멀티골</span>
-              )}
+            <span className="label">스타일 만족</span>
+            <b className="tnum">
+              {Math.round(f.style)}% <Delta v={f.style - fb.style} />
             </b>
           </div>
         </section>
 
-        <details className="card accordion">
-          <summary className="row between">
-            <h2 className="card-title">다른 경기 결과</h2>
-            <Icon name="chevron" className="chev" />
-          </summary>
-          <div className="stack" style={{ marginTop: 12, gap: 10 }}>
-            {others.map((r, i) => (
-              <div key={i} className="row between" style={{ fontSize: 14 }}>
-                <span className="grow">{clubById(r.home).short}</span>
-                <b className="tnum">
-                  {r.hg} : {r.ag}
-                </b>
-                <span className="grow" style={{ textAlign: 'right' }}>
-                  {clubById(r.away).short}
+        <section className="card flush" aria-label="커뮤니티 베스트">
+          <h2 className="card-title" style={{ padding: '14px 20px 4px' }}>
+            커뮤니티 베스트
+          </h2>
+          {report.highlights.map((h, i) => (
+            <div key={i} className="feed-item">
+              <div className="feed-source">
+                <span>{h.nick}</span>
+                <span className="tag" style={{ height: 20, marginLeft: 'auto' }}>
+                  {MOOD_LABEL[h.mood]}
                 </span>
               </div>
-            ))}
-          </div>
-        </details>
+              <p className="feed-text">{h.text}</p>
+              <span className="label">♥ {h.likes}</span>
+            </div>
+          ))}
+          <p className="notice">가상 반응이에요. 전체 글은 반응 탭에서 볼 수 있어요.</p>
+        </section>
 
         <BottomBar>
           <button className="btn primary" onClick={onContinue}>
@@ -141,6 +161,32 @@ export function ResultScreen({ state, onContinue }: { state: GameState; onContin
           </button>
         </BottomBar>
       </div>
+    </div>
+  )
+}
+
+function MatchRow({ r, clubId }: { r: MatchResult; clubId: string }) {
+  const { kind } = resultOf(r, clubId)
+  const side = (id: string) => ({ fontWeight: id === clubId ? 800 : 500, color: id === clubId ? 'var(--ink)' : 'var(--muted)' })
+  return (
+    <div className="item">
+      <span className="label tnum" style={{ width: 28 }}>
+        {r.round}R
+      </span>
+      <Crest clubId={r.home} size={26} />
+      <span className="grow" style={side(r.home)}>
+        {clubById(r.home).short}
+      </span>
+      <b className="tnum">
+        {r.hg} : {r.ag}
+      </b>
+      <span className="grow" style={{ ...side(r.away), textAlign: 'right' }}>
+        {clubById(r.away).short}
+      </span>
+      <Crest clubId={r.away} size={26} />
+      <span className={`tag ${kind === 'w' ? 'accent' : ''}`} style={{ width: 28, justifyContent: 'center', padding: 0 }}>
+        {KIND_LABEL[kind]}
+      </span>
     </div>
   )
 }

@@ -6,7 +6,6 @@ import {
   makeOffers,
   newClubSims,
   PHILOSOPHIES,
-  refreshMarket,
   runOffseason,
   strengthRanking,
   targetRankFor,
@@ -14,15 +13,19 @@ import {
 } from './career'
 import { expireEvents, resolveEvent, rollEvents } from './events'
 import { addTrust, newId, pushFeed, pushTimeline, userClub } from './helpers'
-import { generateRoundMedia } from './media'
+import { generateMonthMedia } from './media'
+import { INITIAL_FAN, updateFan } from './fans'
+import { applyPlan, planCost } from './reinforce'
 import {
   afterMatchMemory,
   computeStandings,
   generateSchedule,
+  MONTH_LABEL,
+  MONTH_ROUNDS,
   ROUNDS,
   simulateRound,
 } from './season'
-import { assignNumber, clamp, playerLabel, playerValue, randomName, SQUAD_MAX, FORMATIONS, isAvailable, wageBill } from './squad'
+import { clamp, randomName, FORMATIONS, wageBill } from './squad'
 import type {
   Abilities,
   Coach,
@@ -30,11 +33,12 @@ import type {
   EventOutcome,
   GameState,
   MatchResult,
-  Player,
+  MonthPlan,
+  MonthReport,
   Tactics,
 } from './types'
 
-export const SAVE_VERSION = 2
+export const SAVE_VERSION = 3
 
 export const DEFAULT_TACTICS: Tactics = { philosophy: 'possession', formation: '4-4-2', pressing: 'mid', line: 'mid' }
 
@@ -69,7 +73,6 @@ export function emptyState(seed: number): GameState {
     fixtures: [],
     results: [],
     tactics: { ...DEFAULT_TACTICS },
-    manualLineup: null,
     tacticMemory: { streak: 0, lastKey: null, familiarity: 0, lastPhilosophy: null },
     ownerTrust: 55,
     targetRank: 5,
@@ -81,9 +84,12 @@ export function emptyState(seed: number): GameState {
     feed: [],
     timeline: [],
     seasons: [],
-    market: [],
+    monthPlan: null,
+    fan: { ...INITIAL_FAN },
+    fitnessBoost: 0,
+    youthInvest: 0,
     pendingCareer: null,
-    lastRound: null,
+    monthReport: null,
     retired: false,
     offseasonReport: null,
     nextId: 0,
@@ -165,8 +171,10 @@ function joinClub(s: GameState, clubId: string, targetRank: number, budget: numb
   s.seasonStartBudget = budget
   s.ownerTrust = 55
   s.tactics = { ...DEFAULT_TACTICS, philosophy: club.philosophy, formation: club.formation }
-  s.manualLineup = null
   s.tacticMemory = { streak: 0, lastKey: null, familiarity: 0, lastPhilosophy: null }
+  s.fan = { ...INITIAL_FAN }
+  s.monthPlan = null
+  s.youthInvest = 0
 }
 
 export function chooseCoach(state: GameState, coachId: string): GameState {
@@ -188,8 +196,7 @@ export function backToOffers(state: GameState): GameState {
 }
 
 export function startSeason(state: GameState): GameState {
-  return act(state, (s, rng) => {
-    s.market = refreshMarket(s, rng)
+  return act(state, (s) => {
     s.phase = 'play'
     const club = clubById(s.userClubId as string)
     pushTimeline(s, 'start', `${club.name} 감독으로 부임`)
@@ -202,148 +209,139 @@ export function startSeason(state: GameState): GameState {
   })[0]
 }
 
-/* ───────── 전술·선발 ───────── */
+/* ───────── 전술 ───────── */
 
 export function setTactics(state: GameState, patch: Partial<Tactics>): GameState {
   return act(state, (s) => {
-    const prevFormation = s.tactics.formation
     s.tactics = { ...s.tactics, ...patch }
-    if (s.tactics.formation !== prevFormation) s.manualLineup = null
   })[0]
 }
 
-/** 선발 한 명을 같은 포지션 후보와 바꾼다 */
-export function swapStarter(state: GameState, outId: string, inId: string, currentLineup: string[]): GameState {
+/* ───────── 이번 달 보강 계획 ───────── */
+
+/** 보강 계획을 정하거나(null이면 취소) 돌려받은 오류 문구를 보여준다 */
+export function setMonthPlan(state: GameState, plan: MonthPlan | null): [GameState, string | null] {
   return act(state, (s) => {
-    const squad = userClub(s).squad
-    const a = squad.find((p) => p.id === outId)
-    const b = squad.find((p) => p.id === inId)
-    if (!a || !b || a.pos !== b.pos || !isAvailable(b)) return
-    s.manualLineup = currentLineup.map((id) => (id === outId ? inId : id))
-  })[0]
+    if (plan && planCost(plan) > userClub(s).budget) return '예산이 부족해요'
+    s.monthPlan = plan
+    return null
+  })
 }
 
-export function resetLineup(state: GameState): GameState {
-  return act(state, (s) => {
-    s.manualLineup = null
-  })[0]
+/* ───────── 한 달 진행 ───────── */
+
+/** 한 라운드를 진행하고 내 경기 결과를 돌려준다 (기사·이벤트는 달이 끝난 뒤 한꺼번에) */
+function stepRound(s: GameState, rng: Rng): MatchResult {
+  const club = userClub(s)
+  const uid = s.userClubId as string
+  const out = simulateRound(s, rng)
+  s.results.push(...out.results)
+  s.round += 1
+  s.tacticMemory = afterMatchMemory(out.userMemory)
+
+  const mine = out.results.find((r) => r.home === uid || r.away === uid) as MatchResult
+  const gf = mine.home === uid ? mine.hg : mine.ag
+  const ga = mine.home === uid ? mine.ag : mine.hg
+
+  club.budget = Math.round((club.budget + 1.5 + (gf > ga ? 0.5 : 0) - wageBill(club.squad)) * 10) / 10
+  if (s.coach?.specialty === 'fitness') {
+    for (const p of club.squad) p.condition = clamp(p.condition + Math.round(s.coach.rating * 0.4), 20, 100)
+  }
+  const standings = computeStandings(s.results, Object.keys(s.clubs))
+  const rank = standings.findIndex((x) => x.clubId === uid) + 1
+  addTrust(s, gf > ga ? 1 : gf < ga ? -1 : 0)
+  addTrust(s, rank <= s.targetRank ? 0.3 : -0.3)
+  if (s.round >= 9 && rank >= 9) s.wasInDanger = true
+  return mine
 }
 
-/* ───────── 라운드 진행 ───────── */
-
-export interface RoundReport {
-  userResult: MatchResult
+export interface MonthOutcome {
+  report: MonthReport
   newEvents: number
   expired: EventOutcome[]
   seasonOver: boolean
 }
 
-export function playRound(state: GameState): [GameState, RoundReport] {
+/** 한 달(3라운드)을 진행한다: 보강 계획 적용 → 경기 → 지지도 갱신 → 기사·커뮤니티 → 이벤트 */
+export function playMonth(state: GameState): [GameState, MonthOutcome] {
   return act(state, (s, rng) => {
-    if (s.phase !== 'play' || s.round >= ROUNDS) throw new Error('지금은 경기를 진행할 수 없어요')
+    if (s.phase !== 'play' || s.round >= ROUNDS) throw new Error('지금은 진행할 수 없어요')
     const club = userClub(s)
     const uid = s.userClubId as string
+    const month = Math.floor(s.round / MONTH_ROUNDS) + 1
+    const ids = Object.keys(s.clubs)
+    const rankBefore = s.round === 0 ? 0 : computeStandings(s.results, ids).findIndex((x) => x.clubId === uid) + 1
+    const fanBefore = { ...s.fan }
+    const trustBefore = s.ownerTrust
     const injuredBefore = new Set(club.squad.filter((p) => p.injuredRounds > 0).map((p) => p.id))
 
-    const out = simulateRound(s, rng)
-    s.results.push(...out.results)
-    s.lastRound = out.results
-    s.round += 1
-    s.tacticMemory = afterMatchMemory(out.userMemory)
+    // 이번 달 보강 계획 적용
+    const plan = s.monthPlan
+    const applied = plan ? applyPlan(s, rng, plan) : null
+    s.monthPlan = null
 
-    const mine = out.results.find((r) => r.home === uid || r.away === uid) as MatchResult
-    const gf = mine.home === uid ? mine.hg : mine.ag
-    const ga = mine.home === uid ? mine.ag : mine.hg
+    const mine: MatchResult[] = []
+    while (mine.length < MONTH_ROUNDS && s.round < ROUNDS) mine.push(stepRound(s, rng))
+    s.fitnessBoost = 0
 
-    // 재정·신뢰·체력 보정
-    club.budget = Math.round((club.budget + 1.5 + (gf > ga ? 0.5 : 0) - wageBill(club.squad)) * 10) / 10
-    if (s.coach?.specialty === 'fitness') {
-      for (const p of club.squad) p.condition = clamp(p.condition + Math.round(s.coach.rating * 0.4), 20, 100)
+    const standings = computeStandings(s.results, ids)
+    const rankAfter = standings.findIndex((x) => x.clubId === uid) + 1
+    let w = 0
+    let d = 0
+    let l = 0
+    let gf = 0
+    let ga = 0
+    for (const r of mine) {
+      const g = r.home === uid ? r.hg : r.ag
+      const c = r.home === uid ? r.ag : r.hg
+      gf += g
+      ga += c
+      if (g > c) w++
+      else if (g < c) l++
+      else d++
     }
-    const standings = computeStandings(s.results, Object.keys(s.clubs))
-    const rank = standings.findIndex((x) => x.clubId === uid) + 1
-    addTrust(s, gf > ga ? 1 : gf < ga ? -1 : 0)
-    addTrust(s, rank <= s.targetRank ? 0.3 : -0.3)
-    if (s.round >= 9 && rank >= 9) s.wasInDanger = true
 
-    const opp = clubById(mine.home === uid ? mine.away : mine.home).short
-    const verdict = gf > ga ? '승리' : gf < ga ? '패배' : '무승부'
-    pushTimeline(s, 'result', `${s.round}라운드 ${opp}전 ${mine.hg}-${mine.ag} ${verdict}`)
-    generateRoundMedia(s, rng, mine, standings, out.results)
+    updateFan(s, { w, d, l, gf, ga, rank: rankAfter }, applied?.applied ? (plan as MonthPlan) : null)
 
-    // 최근 3경기 무승
-    const mineAll = s.results.filter((r) => r.home === uid || r.away === uid).slice(-3)
-    const recentNoWin =
-      mineAll.length >= 3 &&
-      mineAll.every((r) => (r.home === uid ? r.hg <= r.ag : r.ag <= r.hg))
+    const report: MonthReport = {
+      season: s.season,
+      month,
+      results: mine,
+      w,
+      d,
+      l,
+      gf,
+      ga,
+      rankBefore,
+      rankAfter,
+      fanBefore,
+      fanAfter: { ...s.fan },
+      trustDelta: Math.round((s.ownerTrust - trustBefore) * 10) / 10,
+      planLine: applied ? applied.line : null,
+      newInjuries: club.squad.filter((p) => p.injuredRounds > 0 && !injuredBefore.has(p.id)).length,
+      highlights: [],
+    }
+    report.highlights = generateMonthMedia(s, rng, report, standings, plan, !!applied?.applied)
+    s.monthReport = report
+    pushTimeline(s, 'result', `${MONTH_LABEL[month - 1]} ${w}승 ${d}무 ${l}패 · ${rankAfter}위 · 지지도 ${Math.round(s.fan.support)}%`)
 
     const expired = expireEvents(s, rng)
     const fresh = rollEvents(s, rng, {
       injuredBefore,
-      summary: `${opp}전 ${mine.hg}-${mine.ag} ${verdict} 직후, 기자들이 감독 앞으로 몰려들었어요.`,
-      userRank: rank,
-      recentNoWin,
+      summary: `${MONTH_LABEL[month - 1]} ${w}승 ${d}무 ${l}패를 마친 직후, 기자들이 감독 앞으로 몰려들었어요.`,
+      userRank: rankAfter,
+      recentNoWin: w === 0 || s.fan.support < 30,
     })
     s.events.push(...fresh)
 
-    if (s.round % 4 === 0 && s.round < ROUNDS) s.market = refreshMarket(s, rng)
-
     const seasonOver = s.round >= ROUNDS
     if (seasonOver) evaluateSeason(s, rng)
-    return { userResult: mine, newEvents: fresh.length, expired, seasonOver }
+    return { report, newEvents: fresh.length, expired, seasonOver }
   })
 }
 
 export function chooseEvent(state: GameState, uid: string, choiceId: string): [GameState, EventOutcome] {
   return act(state, (s, rng) => resolveEvent(s, rng, uid, choiceId))
-}
-
-/* ───────── 이적 시장 ───────── */
-
-export function buyPrice(s: GameState, p: Player): number {
-  const discount = 1 - ((s.manager?.abilities.negotiation ?? 5) - 5) * 0.02
-  return Math.round(playerValue(p) * discount * 10) / 10
-}
-
-export function sellPrice(p: Player): number {
-  return Math.round(playerValue(p) * 0.75 * 10) / 10
-}
-
-export function buyPlayer(state: GameState, playerId: string): [GameState, string | null] {
-  return act(state, (s) => {
-    const club = userClub(s)
-    const i = s.market.findIndex((p) => p.id === playerId)
-    if (i < 0) return '이미 다른 곳으로 떠난 선수예요'
-    const p = s.market[i]
-    const price = buyPrice(s, p)
-    if (club.squad.length >= SQUAD_MAX) return `선수단은 최대 ${SQUAD_MAX}명이에요`
-    if (club.budget < price) return '예산이 부족해요'
-    club.budget -= price
-    s.market.splice(i, 1)
-    p.contractYears = 3
-    p.morale = 70
-    assignNumber(club.squad, p)
-    club.squad.push(p)
-    pushTimeline(s, 'event', `${playerLabel(p)}(능력치 ${p.ovr}) 영입 — ${price}억`)
-    return null
-  })
-}
-
-export function sellPlayer(state: GameState, playerId: string): [GameState, string | null] {
-  return act(state, (s) => {
-    const club = userClub(s)
-    const p = club.squad.find((x) => x.id === playerId)
-    if (!p) return '선수를 찾을 수 없어요'
-    if (club.squad.length <= 18) return '선수단이 18명 아래로 줄어들 수 없어요'
-    if (p.pos === 'GK' && club.squad.filter((x) => x.pos === 'GK').length <= 2) return '골키퍼는 최소 2명이 필요해요'
-    const price = sellPrice(p)
-    club.squad = club.squad.filter((x) => x.id !== playerId)
-    if (s.manualLineup) s.manualLineup = s.manualLineup.filter((id) => id !== playerId)
-    club.budget += price
-    for (const q of club.squad) q.morale = clamp(q.morale - (p.ovr >= 70 ? 1 : 0), 10, 100)
-    pushTimeline(s, 'event', `${playerLabel(p)}(능력치 ${p.ovr}) 이적 — +${price}억`)
-    return null
-  })
 }
 
 /* ───────── 시즌 결산 이후 ───────── */
@@ -364,7 +362,6 @@ export function finishSeason(state: GameState, clubId: string | null): GameState
     if (offer) {
       const nextClub = clubById(offer.clubId)
       joinClub(s, offer.clubId, targetRankFor(strengthRanking(s).indexOf(offer.clubId) + 1), budgetFor(nextClub.strength))
-      s.market = refreshMarket(s, rng)
       pushTimeline(s, 'career', `${prevClub.short} → ${nextClub.name} 감독으로 이동`)
       lines.unshift(`${nextClub.name}의 새 감독으로 부임했어요`)
     } else {

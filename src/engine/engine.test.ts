@@ -13,15 +13,13 @@ import {
   createManager,
   finishSeason,
   newGame,
-  playRound,
-  setTactics,
+  playMonth,
   startSeason,
-  buyPlayer,
-  sellPlayer,
-  swapStarter,
+  setMonthPlan,
 } from './game'
 import { userClub, pushTimeline } from './helpers'
 import { josa } from './josa'
+import { updateFan } from './fans'
 import { computeStandings as standingsFor } from './season'
 import type { GameState, Tactics } from './types'
 
@@ -167,17 +165,14 @@ describe('게임 흐름', () => {
   it('상태는 JSON으로 저장·복원해도 같은 경기가 이어진다', () => {
     let a = startedGame(21)
     const b: GameState = JSON.parse(JSON.stringify(a))
-    ;[a] = playRound(a)
-    const [b2] = playRound(b)
+    ;[a] = playMonth(a)
+    const [b2] = playMonth(b)
     expect(a.results).toEqual(b2.results)
     expect(JSON.stringify(a)).toBe(JSON.stringify(b2))
   })
   it('한 시즌을 끝까지 돌리면 결산이 나오고 다음 시즌으로 넘어간다', () => {
     let s = startedGame(33)
-    for (let i = 0; i < 18; i++) {
-      ;[s] = playRound(s)
-      // 쌓인 이벤트는 가장 소극적으로 처리해도 흐름이 이어져야 한다
-    }
+    for (let i = 0; i < 6; i++) [s] = playMonth(s)
     expect(s.phase).toBe('seasonEnd')
     expect(s.seasons).toHaveLength(1)
     expect(s.results).toHaveLength(90)
@@ -225,42 +220,12 @@ describe('게임 흐름', () => {
     s.events.push({ uid: 'inj', type: 'injury', createdRound: 0, season: 1, params: { playerId: sp.id, no: sp.no, pos: sp.pos, ovr: sp.ovr, rounds: 5 } })
     ;[s] = chooseEvent(s, 'inj', 'rush')
     expect(userClub(s).squad.find((p) => p.id === star.id)!.pushedReturn).toBe(true)
-    for (let i = 0; i < 18; i++) [s] = playRound(s)
+    for (let i = 0; i < 6; i++) [s] = playMonth(s)
     const pc = s.pendingCareer!
     const next = finishSeason(s, pc.decision.kind === 'fired' ? pc.offers[0].clubId : null)
     const after = next.clubs[s.userClubId!].squad.find((p) => p.id === star.id)
     // 이적했거나 은퇴하지 않았다면 기량이 떨어져 있어야 한다 (성장 최대치보다 더 큰 감점)
     if (after && next.userClubId === s.userClubId) expect(after.ovr).toBeLessThanOrEqual(before)
-  })
-  it('이적 시장: 영입은 예산을 쓰고, 방출은 예산을 돌려준다', () => {
-    let s = startedGame(4)
-    const target = s.market[s.market.length - 1]
-    const before = userClub(s).budget
-    let err: string | null
-    ;[s, err] = buyPlayer(s, target.id)
-    if (err) expect(err).toMatch(/예산/)
-    else {
-      expect(userClub(s).budget).toBeLessThan(before)
-      expect(userClub(s).squad).toHaveLength(24)
-      ;[s, err] = sellPlayer(s, target.id)
-      expect(err).toBeNull()
-      expect(userClub(s).squad).toHaveLength(23)
-    }
-  })
-  it('선발 교체는 같은 포지션끼리만 가능하다', () => {
-    const s = startedGame(8)
-    const club = userClub(s)
-    const lineup = pickLineup(club.squad, s.tactics.formation).map((p) => p.id)
-    const starter = club.squad.find((p) => lineup.includes(p.id) && p.pos === 'MF')!
-    const sub = club.squad.find((p) => !lineup.includes(p.id) && p.pos === 'MF')!
-    const fw = club.squad.find((p) => !lineup.includes(p.id) && p.pos === 'FW')!
-    expect(swapStarter(s, starter.id, sub.id, lineup).manualLineup).toContain(sub.id)
-    expect(swapStarter(s, starter.id, fw.id, lineup).manualLineup).toBeNull()
-  })
-  it('포메이션을 바꾸면 수동 선발이 초기화된다', () => {
-    let s = startedGame(8)
-    s = { ...s, manualLineup: ['x'] }
-    expect(setTactics(s, { formation: '4-3-3' }).manualLineup).toBeNull()
   })
   it('저장 상태에는 함수가 없다', () => {
     const s = startedGame(1)
@@ -286,7 +251,7 @@ describe('시즌 결산', () => {
   it('평가는 순위와 목표의 차이를 따르고, 성과 인정은 한 단계만 올린다', () => {
     for (const seed of [11, 12, 13, 14]) {
       let s = startedGame(seed)
-      for (let i = 0; i < 18; i++) [s] = playRound(s)
+      for (let i = 0; i < 6; i++) [s] = playMonth(s)
       const sum = s.seasons[0]
       const table = standingsFor(s.results, Object.keys(s.clubs))
       expect(sum.rank).toBe(table.findIndex((t) => t.clubId === s.userClubId) + 1)
@@ -304,7 +269,7 @@ describe('시즌 결산', () => {
     s.events.push({ uid: 'o', type: 'owner', createdRound: 0, season: 1, params: { target: 5 } })
     ;[s] = chooseEvent(s, 'o', 'youth')
     expect(s.promises[0]).toMatchObject({ type: 'youth', season: 1 })
-    for (let i = 0; i < 18; i++) [s] = playRound(s)
+    for (let i = 0; i < 6; i++) [s] = playMonth(s)
     expect(s.seasons[0].promiseNotes.some((n) => n.includes('유소년 기용 약속'))).toBe(true)
   })
 })
@@ -312,7 +277,7 @@ describe('시즌 결산', () => {
 describe('선수 이름 없음', () => {
   it('선수는 이름 대신 구단 안에서 유일한 등번호를 가진다', () => {
     let s = startedGame(41)
-    for (let i = 0; i < 18; i++) [s] = playRound(s)
+    for (let i = 0; i < 6; i++) [s] = playMonth(s)
     const next = finishSeason(s, s.pendingCareer!.decision.kind === 'fired' ? s.pendingCareer!.offers[0].clubId : null)
     for (const state of [s, next]) {
       for (const club of Object.values(state.clubs)) {
@@ -325,8 +290,114 @@ describe('선수 이름 없음', () => {
   })
   it('이벤트·득점 기록에도 선수 이름이 들어가지 않는다', () => {
     let s = startedGame(42)
-    for (let i = 0; i < 18; i++) [s] = playRound(s)
+    for (let i = 0; i < 6; i++) [s] = playMonth(s)
     for (const r of s.results) for (const g of r.scorers) expect('name' in g).toBe(false)
     expect(s.seasons[0] && 'topScorer' in s.seasons[0]).toBeFalsy()
+  })
+})
+
+describe('한 달 진행', () => {
+  it('한 달은 3라운드, 한 시즌은 6개월이다', () => {
+    let s = startedGame(51)
+    let r: ReturnType<typeof playMonth>[1]
+    ;[s, r] = playMonth(s)
+    expect(s.round).toBe(3)
+    expect(r.report.month).toBe(1)
+    expect(r.report.results).toHaveLength(3)
+    expect(r.report.w + r.report.d + r.report.l).toBe(3)
+    for (let m = 2; m <= 6; m++) [s, r] = playMonth(s)
+    expect(r.report.month).toBe(6)
+    expect(r.seasonOver).toBe(true)
+    expect(s.phase).toBe('seasonEnd')
+  })
+  it('달마다 보고서·가상 기사·커뮤니티 글이 쌓인다', () => {
+    let s = startedGame(52)
+    ;[s] = playMonth(s)
+    const rep = s.monthReport!
+    expect(rep.highlights.length).toBeGreaterThan(0)
+    expect(s.feed.filter((f) => f.kind === 'fan').length).toBeGreaterThanOrEqual(4)
+    expect(s.feed.filter((f) => f.kind === 'article').length).toBeGreaterThanOrEqual(2)
+    for (const f of s.feed.filter((x) => x.kind === 'fan')) {
+      expect(f.likes).toBeGreaterThan(0)
+      expect(f.topic).toBeDefined()
+    }
+    expect(s.timeline.some((t) => t.kind === 'result' && t.text.includes('월'))).toBe(true)
+  })
+})
+
+describe('전력 보강 예산', () => {
+  it('공격 보강은 예산을 쓰고 공격수를 한 명 늘린다', () => {
+    let s = startedGame(53)
+    const budget = userClub(s).budget
+    const fw = userClub(s).squad.filter((p) => p.pos === 'FW').length
+    let err: string | null
+    ;[s, err] = setMonthPlan(s, { focus: 'attack', level: 'medium' })
+    expect(err).toBeNull()
+    ;[s] = playMonth(s)
+    expect(s.monthPlan).toBeNull()
+    expect(s.monthReport!.planLine).toContain('영입')
+    expect(userClub(s).squad.filter((p) => p.pos === 'FW').length).toBe(fw + 1)
+    // 15억을 썼고, 한 달 수입·인건비가 더해진다
+    expect(userClub(s).budget).toBeLessThan(budget - 10)
+  })
+  it('예산이 모자라면 정할 수 없다', () => {
+    let s = startedGame(54)
+    s = structuredClone(s)
+    userClub(s).budget = 3
+    let err: string | null
+    ;[s, err] = setMonthPlan(s, { focus: 'attack', level: 'large' })
+    expect(err).toMatch(/예산/)
+    expect(s.monthPlan).toBeNull()
+  })
+  it('예산 아끼기는 예산을 늘린다', () => {
+    const base = startedGame(55)
+    const [a] = playMonth(base)
+    const [saved0] = setMonthPlan(base, { focus: 'save', level: 'large' })
+    const [b] = playMonth(saved0)
+    expect(userClub(b).budget).toBeGreaterThan(userClub(a).budget + 5)
+    expect(b.monthReport!.planLine).toContain('아꼈어요')
+  })
+  it('같은 한 달 성적이라도 투자는 지지도를 올리고 저축은 깎는다', () => {
+    const stats = { w: 1, d: 1, l: 1, gf: 3, ga: 3, rank: 5 }
+    const run = (plan: Parameters<typeof updateFan>[2]) => {
+      const s = structuredClone(startedGame(56))
+      s.targetRank = 5
+      updateFan(s, stats, plan)
+      return s
+    }
+    const none = run(null)
+    const invest = run({ focus: 'midfield', level: 'large' })
+    const save = run({ focus: 'save', level: 'large' })
+    expect(invest.fan.support).toBeGreaterThan(none.fan.support)
+    expect(save.fan.support).toBeLessThan(none.fan.support)
+  })
+  it('유소년 투자는 오프시즌 성장에 쓰이고 시즌이 바뀌면 초기화된다', () => {
+    let s = startedGame(57)
+    s = setMonthPlan(s, { focus: 'youth', level: 'large' })[0]
+    ;[s] = playMonth(s)
+    expect(s.youthInvest).toBeGreaterThan(0)
+    for (let i = 0; i < 5; i++) [s] = playMonth(s)
+    const pc = s.pendingCareer!
+    const next = finishSeason(s, pc.decision.kind === 'fired' ? pc.offers[0].clubId : null)
+    expect(next.youthInvest).toBe(0)
+  })
+})
+
+describe('팬 지지도', () => {
+  it('지지도는 0~100 안에서 움직이고 승리·패배에 반응한다', () => {
+    let s = startedGame(58)
+    const seen: number[] = [s.fan.support]
+    for (let i = 0; i < 6; i++) {
+      ;[s] = playMonth(s)
+      seen.push(s.fan.support)
+      expect(s.fan.support).toBeGreaterThanOrEqual(0)
+      expect(s.fan.support).toBeLessThanOrEqual(100)
+      const rep = s.monthReport!
+      const net = rep.w - rep.l
+      const d = rep.fanAfter.results - rep.fanBefore.results
+      if (net >= 2) expect(d).toBeGreaterThan(0)
+      if (net <= -2) expect(d).toBeLessThan(0)
+    }
+    expect(new Set(seen).size).toBeGreaterThan(2)
   })
 })
